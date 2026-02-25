@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useRef, useEffect } from "react";
 
 // ─── NFL TEAMS ───────────────────────────────────────────────────────────────
 const TEAMS = [
@@ -707,6 +707,26 @@ function RatingBar({r, gold}) {
   );
 }
 
+// ─── PLAYER HEADSHOT ─────────────────────────────────────────────────────────
+function PlayerHeadshot({ name, headshotMap, size=38, isLegend=false }) {
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g,"");
+  const src = headshotMap[key] || null;
+  const initials = name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+  const [err, setErr] = useState(false);
+  return src && !err ? (
+    <img src={src} alt={name} onError={()=>setErr(true)}
+      style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",objectPosition:"top",
+        border:`2px solid ${isLegend?"#FFD700":"#2a2a2a"}`,flexShrink:0,background:"#111"}}/>
+  ) : (
+    <div style={{width:size,height:size,borderRadius:"50%",background:isLegend?"#2a1a00":"#1a1a1a",
+      border:`2px solid ${isLegend?"#FFD700":"#2a2a2a"}`,display:"flex",alignItems:"center",
+      justifyContent:"center",flexShrink:0,
+      fontFamily:"'Oswald',sans-serif",fontSize:size*0.35,color:isLegend?"#FFD700":"#555",fontWeight:700}}>
+      {initials}
+    </div>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 const mkRoster = () => Object.fromEntries(SLOTS.map(s=>[s.key,null]));
 
@@ -882,28 +902,7 @@ export default function App() {
   const filledCount = p => SLOTS.filter(s=>p.roster[s.key]!==null).length;
   const emptySlots  = p => SLOTS.filter(s=>p.roster[s.key]===null);
 
-  const getHeadshot = playerName => {
-    const key = playerName.toLowerCase().replace(/[^a-z0-9]/g,"");
-    return headshotMap[key] || null;
-  };
 
-  const PlayerHeadshot = ({ name, size=38, isLegend=false }) => {
-    const src = getHeadshot(name);
-    const initials = name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
-    const [err, setErr] = useState(false);
-    return src && !err ? (
-      <img src={src} alt={name} onError={()=>setErr(true)}
-        style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",objectPosition:"top",
-          border:`2px solid ${isLegend?"#FFD700":"#2a2a2a"}`,flexShrink:0,background:"#111"}}/>
-    ) : (
-      <div style={{width:size,height:size,borderRadius:"50%",background:isLegend?"#2a1a00":"#1a1a1a",
-        border:`2px solid ${isLegend?"#FFD700":"#2a2a2a"}`,display:"flex",alignItems:"center",
-        justifyContent:"center",flexShrink:0,
-        fontFamily:"'Oswald',sans-serif",fontSize:size*0.35,color:isLegend?"#FFD700":"#555",fontWeight:700}}>
-        {initials}
-      </div>
-    );
-  };
 
   // ── spin ──
   const spin = () => {
@@ -1051,7 +1050,7 @@ export default function App() {
                       <div style={S.resSlotLabel}>{sl.label} <span style={{color:"#333"}}>×{sl.weight}</span></div>
                       {pick?(
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <PlayerHeadshot name={pick.n} size={32} isLegend={pick.isLegend}/>
+                          <PlayerHeadshot name={pick.n} size={32} isLegend={pick.isLegend} headshotMap={headshotMap}/>
                           {pick.isLegend&&<span style={{fontSize:11}}>⭐</span>}
                           <span style={{fontSize:13,color:pick.isLegend?"#FFD700":"#ccc"}}>{pick.n}</span>
                           <span style={{fontFamily:"'Oswald',sans-serif",fontSize:12,color:pick.isLegend?"#FFD700":"#3a9a3a",marginLeft:2}}>{pick.r}</span>
@@ -1180,7 +1179,7 @@ export default function App() {
               const teamHasLegendForSlot = teamLegends.some(lg=>lg.pos.includes(sl.key));
               return (
                 <div key={sl.key} style={{...S.row,...(fill?S.rowFill:S.rowEmpty)}}>
-                  {fill && <PlayerHeadshot name={fill.n} isLegend={fill.isLegend}/>}
+                  {fill && <PlayerHeadshot name={fill.n} isLegend={fill.isLegend} headshotMap={headshotMap}/>}
                   <div style={{flex:1,minWidth:0}}>
                     <div style={S.slotLbl}>{sl.label} <span style={{color:"#2a2a2a"}}>×{sl.weight}</span></div>
                     {fill?(
