@@ -1,0 +1,1334 @@
+import { useState, useEffect, useRef } from "react"
+
+// ─── NFL TEAMS ───────────────────────────────────────────────────────────────
+const TEAMS = [
+  {id:"ARI",name:"Cardinals",city:"Arizona",p:"#97233F",s:"#FFB612"},
+  {id:"ATL",name:"Falcons",city:"Atlanta",p:"#A71930",s:"#A5ACAF"},
+  {id:"BAL",name:"Ravens",city:"Baltimore",p:"#241773",s:"#9E7C0C"},
+  {id:"BUF",name:"Bills",city:"Buffalo",p:"#00338D",s:"#C60C30"},
+  {id:"CAR",name:"Panthers",city:"Carolina",p:"#0085CA",s:"#101820"},
+  {id:"CHI",name:"Bears",city:"Chicago",p:"#0B162A",s:"#C83803"},
+  {id:"CIN",name:"Bengals",city:"Cincinnati",p:"#FB4F14",s:"#000000"},
+  {id:"CLE",name:"Browns",city:"Cleveland",p:"#311D00",s:"#FF3C00"},
+  {id:"DAL",name:"Cowboys",city:"Dallas",p:"#003594",s:"#869397"},
+  {id:"DEN",name:"Broncos",city:"Denver",p:"#FB4F14",s:"#002244"},
+  {id:"DET",name:"Lions",city:"Detroit",p:"#0076B6",s:"#B0B7BC"},
+  {id:"GB",name:"Packers",city:"Green Bay",p:"#203731",s:"#FFB612"},
+  {id:"HOU",name:"Texans",city:"Houston",p:"#03202F",s:"#A71930"},
+  {id:"IND",name:"Colts",city:"Indianapolis",p:"#002C5F",s:"#A2AAAD"},
+  {id:"JAX",name:"Jaguars",city:"Jacksonville",p:"#006778",s:"#9F792C"},
+  {id:"KC",name:"Chiefs",city:"Kansas City",p:"#E31837",s:"#FFB81C"},
+  {id:"LV",name:"Raiders",city:"Las Vegas",p:"#000000",s:"#A5ACAF"},
+  {id:"LAC",name:"Chargers",city:"L.A.",p:"#0080C6",s:"#FFC20E"},
+  {id:"LAR",name:"Rams",city:"L.A.",p:"#003594",s:"#FFA300"},
+  {id:"MIA",name:"Dolphins",city:"Miami",p:"#008E97",s:"#FC4C02"},
+  {id:"MIN",name:"Vikings",city:"Minnesota",p:"#4F2683",s:"#FFC62F"},
+  {id:"NE",name:"Patriots",city:"New England",p:"#002244",s:"#C60C30"},
+  {id:"NO",name:"Saints",city:"New Orleans",p:"#9F8958",s:"#101820"},
+  {id:"NYG",name:"Giants",city:"N.Y.",p:"#0B2265",s:"#A71930"},
+  {id:"NYJ",name:"Jets",city:"N.Y.",p:"#125740",s:"#FFFFFF"},
+  {id:"PHI",name:"Eagles",city:"Philadelphia",p:"#004C54",s:"#A5ACAF"},
+  {id:"PIT",name:"Steelers",city:"Pittsburgh",p:"#101820",s:"#FFB612"},
+  {id:"SF",name:"49ers",city:"San Francisco",p:"#AA0000",s:"#B3995D"},
+  {id:"SEA",name:"Seahawks",city:"Seattle",p:"#002244",s:"#69BE28"},
+  {id:"TB",name:"Buccaneers",city:"Tampa Bay",p:"#D50A0A",s:"#FF7900"},
+  {id:"TEN",name:"Titans",city:"Tennessee",p:"#0C2340",s:"#4B92DB"},
+  {id:"WAS",name:"Commanders",city:"Washington",p:"#5A1414",s:"#FFB612"},
+];
+
+// ─── POSITION SLOTS ──────────────────────────────────────────────────────────
+const SLOTS = [
+  {key:"QB", label:"Quarterback",       weight:1.5,  rosterKey:"QB"},
+  {key:"RB", label:"Running Back",      weight:1.2,  rosterKey:"RB"},
+  {key:"WR1",label:"Wide Receiver 1",   weight:1.0,  rosterKey:"WR"},
+  {key:"WR2",label:"Wide Receiver 2",   weight:1.0,  rosterKey:"WR"},
+  {key:"WR3",label:"Wide Receiver 3",   weight:1.0,  rosterKey:"WR"},
+  {key:"TE", label:"Tight End",         weight:1.1,  rosterKey:"TE"},
+  {key:"DEF",label:"Defense",           weight:1.3,  rosterKey:"DEF"},
+  {key:"HC", label:"Head Coach",        weight:1.15, rosterKey:"HC"},
+];
+
+// ─── CURRENT ROSTERS (2025-26 season, COMPOSITE ratings) ────────────────────
+// Rating methodology: PFF 2025 season grade 50% + Madden 26 OVR 25% + SI/Media ranking 25%
+// Sources: pff.com/nfl-pff-101 · EA Sports Madden 26 launch ratings · SI/MMQB 2026 Top 100
+// Key 2025 facts:
+// Matthew Stafford (LAR) NFL MVP, 91.9 PFF passing grade
+// Puka Nacua (LAR) #1 WR at 96.3 PFF, 1,715 yards, 10 TDs
+// Jaxon Smith-Njigba (SEA) #2 WR; Kenneth Walker III (SEA) #1 RB, Super Bowl 60 MVP
+// Myles Garrett (CLE) broke all-time sack record (23), 93.3 pass-rush grade
+// George Kittle (SF) #1 TE at 90.7; George Pickens traded PIT→DAL
+// Seattle Seahawks won Super Bowl 60 over New England Patriots 29-13
+// Ben Johnson (CHI HC yr1) won NFC North; Davante Adams moved to LAR
+// 2025 ROOKIES: Tetairoa McMillan (CAR), Harold Fannin Jr. (CLE),
+//   Ashton Jeanty (LV), Tyler Warren (IND), Colston Loveland (CHI),
+//   Luther Burden III (CHI), Kyle Monangai (CHI), Emeka Egbuka (TB),
+//   Omarion Hampton (LAC), Matthew Golden (GB), Jayden Higgins (HOU),
+//   Woody Marks (HOU), RJ Harvey (DEN), Cam Skattebo (NYG),
+//   Tyler Shough (NO), Travis Hunter (JAX - injured Wk7),
+//   Shedeur Sanders (CLE), Quinshon Judkins (CLE), Isaiah Bond (CLE),
+//   Jaxson Dart (NYG), Cam Ward (TEN), Jacory Croskey-Merritt (WAS)
+
+const ROSTERS = {
+  ARI:{
+    QB:[{n:"Kyler Murray",r:76},{n:"Clayton Tune",r:58}],
+    RB:[{n:"James Conner",r:70},{n:"Trey Benson",r:63}],
+    WR:[{n:"Marvin Harrison Jr.",r:83},{n:"Michael Wilson",r:64},{n:"Greg Dortch",r:61}],
+    TE:[{n:"Trey McBride",r:93},{n:"Elijah Higgins",r:58}],
+    DEF:[{n:"Arizona Defense",r:60}],
+    HC:[{n:"Jonathan Gannon",r:60}],
+  },
+  ATL:{
+    QB:[{n:"Michael Penix Jr.",r:73},{n:"Kirk Cousins",r:78}],
+    RB:[{n:"Bijan Robinson",r:92},{n:"Tyler Allgeier",r:65}],
+    WR:[{n:"Drake London",r:76},{n:"Darnell Mooney",r:68},{n:"KhaDarel Hodge",r:60}],
+    TE:[{n:"Kyle Pitts",r:83},{n:"Charlie Woerner",r:58}],
+    DEF:[{n:"Atlanta Defense",r:65}],
+    HC:[{n:"Raheem Morris",r:62}],
+  },
+  BAL:{
+    QB:[{n:"Lamar Jackson",r:90},{n:"Josh Johnson",r:53}],
+    RB:[{n:"Derrick Henry",r:88},{n:"Justice Hill",r:63}],
+    WR:[{n:"Zay Flowers",r:78},{n:"Rashod Bateman",r:65},{n:"Nelson Agholor",r:61}],
+    TE:[{n:"Mark Andrews",r:85},{n:"Isaiah Likely",r:68}],
+    DEF:[{n:"Baltimore Defense",r:82}],
+    HC:[{n:"John Harbaugh",r:85}],
+  },
+  BUF:{
+    QB:[{n:"Josh Allen",r:97},{n:"Mitchell Trubisky",r:58}],
+    RB:[{n:"James Cook",r:84},{n:"Ray Davis",r:62}],
+    WR:[{n:"Keon Coleman",r:73},{n:"Khalil Shakir",r:71},{n:"Mack Hollins",r:62}],
+    TE:[{n:"Dalton Kincaid",r:73},{n:"Dawson Knox",r:65}],
+    DEF:[{n:"Buffalo Defense",r:80}],
+    HC:[{n:"Sean McDermott",r:80}],
+  },
+  CAR:{
+    QB:[{n:"Bryce Young",r:72},{n:"Andy Dalton",r:59}],
+    RB:[{n:"Chuba Hubbard",r:66},{n:"Miles Sanders",r:61}],
+    WR:[{n:"Tetairoa McMillan",r:76},{n:"Adam Thielen",r:63},{n:"Jonathan Mingo",r:60}],
+    TE:[{n:"Ja'Tavion Sanders",r:63},{n:"Tommy Tremble",r:58}],
+    DEF:[{n:"Carolina Defense",r:58}],
+    HC:[{n:"Dave Canales",r:63}],
+  },
+  CHI:{
+    QB:[{n:"Caleb Williams",r:83},{n:"Tyson Bagent",r:56}],
+    RB:[{n:"D'Andre Swift",r:74},{n:"Kyle Monangai",r:65}],
+    WR:[{n:"DJ Moore",r:79},{n:"Luther Burden III",r:75},{n:"Rome Odunze",r:72}],
+    TE:[{n:"Colston Loveland",r:84},{n:"Cole Kmet",r:67}],
+    DEF:[{n:"Chicago Defense",r:68}],
+    HC:[{n:"Ben Johnson",r:81}],
+  },
+  CIN:{
+    QB:[{n:"Joe Burrow",r:94},{n:"Jake Browning",r:60}],
+    RB:[{n:"Chase Brown",r:67},{n:"Zack Moss",r:63}],
+    WR:[{n:"Ja'Marr Chase",r:98},{n:"Tee Higgins",r:82},{n:"Tyler Boyd",r:68}],
+    TE:[{n:"Mike Gesicki",r:66},{n:"Drew Sample",r:57}],
+    DEF:[{n:"Cincinnati Defense",r:65}],
+    HC:[{n:"Zac Taylor",r:72}],
+  },
+  CLE:{
+    QB:[{n:"Shedeur Sanders",r:66},{n:"Dillon Gabriel",r:60}],
+    RB:[{n:"Quinshon Judkins",r:74},{n:"Dylan Sampson",r:63}],
+    WR:[{n:"Jerry Jeudy",r:72},{n:"Isaiah Bond",r:65},{n:"Cedric Tillman",r:63}],
+    TE:[{n:"Harold Fannin Jr.",r:80},{n:"David Njoku",r:72}],
+    DEF:[{n:"Cleveland Defense",r:91}],
+    HC:[{n:"Todd Monken",r:72}],
+  },
+  DAL:{
+    QB:[{n:"Dak Prescott",r:85},{n:"Cooper Rush",r:62}],
+    RB:[{n:"Javonte Williams",r:75},{n:"Deuce Vaughn",r:60}],
+    WR:[{n:"CeeDee Lamb",r:91},{n:"George Pickens",r:88},{n:"Jalen Tolbert",r:61}],
+    TE:[{n:"Jake Ferguson",r:72},{n:"Luke Schoonmaker",r:60}],
+    DEF:[{n:"Dallas Defense",r:74}],
+    HC:[{n:"Mike McCarthy",r:70}],
+  },
+  DEN:{
+    QB:[{n:"Bo Nix",r:79},{n:"Jarrett Stidham",r:57}],
+    RB:[{n:"RJ Harvey",r:71},{n:"Javonte Williams",r:68}],
+    WR:[{n:"Courtland Sutton",r:73},{n:"Marvin Mims",r:67},{n:"Troy Franklin",r:63}],
+    TE:[{n:"Adam Trautman",r:62},{n:"Greg Dulcich",r:58}],
+    DEF:[{n:"Denver Defense",r:74}],
+    HC:[{n:"Sean Payton",r:80}],
+  },
+  DET:{
+    QB:[{n:"Jared Goff",r:83},{n:"Hendon Hooker",r:60}],
+    RB:[{n:"Jahmyr Gibbs",r:95},{n:"David Montgomery",r:78}],
+    WR:[{n:"Amon-Ra St. Brown",r:95},{n:"Jameson Williams",r:74},{n:"Josh Reynolds",r:62}],
+    TE:[{n:"Sam LaPorta",r:76},{n:"Brock Wright",r:58}],
+    DEF:[{n:"Detroit Defense",r:80}],
+    HC:[{n:"Dan Campbell",r:83}],
+  },
+  GB:{
+    QB:[{n:"Jordan Love",r:86},{n:"Sean Clifford",r:53}],
+    RB:[{n:"Josh Jacobs",r:84},{n:"Emanuel Wilson",r:63}],
+    WR:[{n:"Romeo Doubs",r:74},{n:"Jayden Reed",r:74},{n:"Matthew Golden",r:65}],
+    TE:[{n:"Tucker Kraft",r:70},{n:"Luke Musgrave",r:66}],
+    DEF:[{n:"Green Bay Defense",r:67}],
+    HC:[{n:"Matt LaFleur",r:79}],
+  },
+  HOU:{
+    QB:[{n:"C.J. Stroud",r:77},{n:"Case Keenum",r:55}],
+    RB:[{n:"Woody Marks",r:73},{n:"Joe Mixon",r:74}],
+    WR:[{n:"Nico Collins",r:89},{n:"Jayden Higgins",r:72},{n:"Tank Dell",r:73}],
+    TE:[{n:"Dalton Schultz",r:68},{n:"Brevin Jordan",r:62}],
+    DEF:[{n:"Houston Defense",r:89}],
+    HC:[{n:"DeMeco Ryans",r:78}],
+  },
+  IND:{
+    QB:[{n:"Anthony Richardson",r:74},{n:"Joe Flacco",r:58}],
+    RB:[{n:"Jonathan Taylor",r:93},{n:"Trey Sermon",r:58}],
+    WR:[{n:"Michael Pittman Jr.",r:76},{n:"Josh Downs",r:70},{n:"Alec Pierce",r:61}],
+    TE:[{n:"Tyler Warren",r:83},{n:"Mo Alie-Cox",r:57}],
+    DEF:[{n:"Indianapolis Defense",r:64}],
+    HC:[{n:"Shane Steichen",r:68}],
+  },
+  JAX:{
+    QB:[{n:"Trevor Lawrence",r:82},{n:"C.J. Beathard",r:52}],
+    RB:[{n:"Travis Etienne Jr.",r:78},{n:"Tank Bigsby",r:65}],
+    WR:[{n:"Brian Thomas Jr.",r:81},{n:"Travis Hunter",r:68},{n:"Gabe Davis",r:64}],
+    TE:[{n:"Evan Engram",r:74},{n:"Brenton Strange",r:58}],
+    DEF:[{n:"Jacksonville Defense",r:65}],
+    HC:[{n:"Doug Pederson",r:68}],
+  },
+  KC:{
+    QB:[{n:"Patrick Mahomes",r:88},{n:"Carson Wentz",r:60}],
+    RB:[{n:"Kareem Hunt",r:72},{n:"Isiah Pacheco",r:72}],
+    WR:[{n:"Rashee Rice",r:76},{n:"Mecole Hardman",r:65},{n:"Skyy Moore",r:61}],
+    TE:[{n:"Travis Kelce",r:84},{n:"Noah Gray",r:60}],
+    DEF:[{n:"Kansas City Defense",r:76}],
+    HC:[{n:"Andy Reid",r:94}],
+  },
+  LV:{
+    QB:[{n:"Geno Smith",r:70},{n:"Aidan O'Connell",r:60}],
+    RB:[{n:"Ashton Jeanty",r:78},{n:"Ameer Abdullah",r:57}],
+    WR:[{n:"Jakobi Meyers",r:70},{n:"Quentin Johnston",r:65},{n:"Michael Gallup",r:61}],
+    TE:[{n:"Brock Bowers",r:88},{n:"Michael Mayer",r:64}],
+    DEF:[{n:"Las Vegas Defense",r:63}],
+    HC:[{n:"Pete Carroll",r:62}],
+  },
+  LAC:{
+    QB:[{n:"Justin Herbert",r:86},{n:"Easton Stick",r:54}],
+    RB:[{n:"J.K. Dobbins",r:72},{n:"Omarion Hampton",r:69}],
+    WR:[{n:"Quentin Johnston",r:65},{n:"Joshua Palmer",r:66},{n:"Ladd McConkey",r:74}],
+    TE:[{n:"Will Dissly",r:62},{n:"Donald Parham Jr.",r:60}],
+    DEF:[{n:"L.A. Chargers Defense",r:70}],
+    HC:[{n:"Jim Harbaugh",r:84}],
+  },
+  LAR:{
+    QB:[{n:"Matthew Stafford",r:96},{n:"Dresser Winn",r:54}],
+    RB:[{n:"Kyren Williams",r:84},{n:"Blake Corum",r:63}],
+    WR:[{n:"Puka Nacua",r:99},{n:"Davante Adams",r:86},{n:"Cooper Kupp",r:76}],
+    TE:[{n:"Colby Parkinson",r:66},{n:"Davis Allen",r:58}],
+    DEF:[{n:"L.A. Rams Defense",r:75}],
+    HC:[{n:"Sean McVay",r:88}],
+  },
+  MIA:{
+    QB:[{n:"Tua Tagovailoa",r:70},{n:"Tyler Huntley",r:57}],
+    RB:[{n:"De'Von Achane",r:84},{n:"Raheem Mostert",r:67}],
+    WR:[{n:"Tyreek Hill",r:86},{n:"Jaylen Waddle",r:77},{n:"Malik Washington",r:60}],
+    TE:[{n:"Durham Smythe",r:59},{n:"Julian Hill",r:57}],
+    DEF:[{n:"Miami Defense",r:64}],
+    HC:[{n:"Mike McDaniel",r:70}],
+  },
+  MIN:{
+    QB:[{n:"J.J. McCarthy",r:62},{n:"Nick Mullens",r:53}],
+    RB:[{n:"Aaron Jones",r:73},{n:"Jordan Mason",r:71}],
+    WR:[{n:"Justin Jefferson",r:91},{n:"Jordan Addison",r:75},{n:"Jalen Nailor",r:60}],
+    TE:[{n:"T.J. Hockenson",r:77},{n:"Josh Oliver",r:58}],
+    DEF:[{n:"Minnesota Defense",r:72}],
+    HC:[{n:"Kevin O'Connell",r:72}],
+  },
+  NE:{
+    QB:[{n:"Drake Maye",r:89},{n:"Jacoby Brissett",r:60}],
+    RB:[{n:"Rhamondre Stevenson",r:71},{n:"Antonio Gibson",r:63}],
+    WR:[{n:"Ja'Lynn Polk",r:65},{n:"Demario Douglas",r:63},{n:"Kendrick Bourne",r:63}],
+    TE:[{n:"Hunter Henry",r:65},{n:"Austin Hooper",r:58}],
+    DEF:[{n:"New England Defense",r:65}],
+    HC:[{n:"Jerod Mayo",r:59}],
+  },
+  NO:{
+    QB:[{n:"Tyler Shough",r:73},{n:"Derek Carr",r:71}],
+    RB:[{n:"Alvin Kamara",r:76},{n:"Kendre Miller",r:63}],
+    WR:[{n:"Chris Olave",r:82},{n:"Rashid Shaheed",r:69},{n:"Marquez Valdes-Scantling",r:61}],
+    TE:[{n:"Juwan Johnson",r:65},{n:"Foster Moreau",r:60}],
+    DEF:[{n:"New Orleans Defense",r:62}],
+    HC:[{n:"Dennis Allen",r:60}],
+  },
+  NYG:{
+    QB:[{n:"Jaxson Dart",r:70},{n:"Tommy DeVito",r:54}],
+    RB:[{n:"Cam Skattebo",r:72},{n:"Tyrone Tracy Jr.",r:68}],
+    WR:[{n:"Malik Nabers",r:74},{n:"Darius Slayton",r:66},{n:"Wan'Dale Robinson",r:64}],
+    TE:[{n:"Daniel Bellinger",r:60},{n:"Tommy Sweeney",r:57}],
+    DEF:[{n:"N.Y. Giants Defense",r:63}],
+    HC:[{n:"Brian Daboll",r:65}],
+  },
+  NYJ:{
+    QB:[{n:"Justin Fields",r:68},{n:"Brady Cook",r:58}],
+    RB:[{n:"Breece Hall",r:82},{n:"Braelon Allen",r:65}],
+    WR:[{n:"Garrett Wilson",r:84},{n:"Allen Lazard",r:61},{n:"Xavier Gipson",r:58}],
+    TE:[{n:"Tyler Conklin",r:62},{n:"Jeremy Ruckert",r:57}],
+    DEF:[{n:"N.Y. Jets Defense",r:74}],
+    HC:[{n:"Aaron Glenn",r:66}],
+  },
+  PHI:{
+    QB:[{n:"Jalen Hurts",r:82},{n:"Kenny Pickett",r:63}],
+    RB:[{n:"Saquon Barkley",r:97},{n:"Kenneth Gainwell",r:62}],
+    WR:[{n:"A.J. Brown",r:91},{n:"DeVonta Smith",r:85},{n:"Parris Campbell",r:61}],
+    TE:[{n:"Dallas Goedert",r:84},{n:"Grant Calcaterra",r:58}],
+    DEF:[{n:"Philadelphia Defense",r:83}],
+    HC:[{n:"Nick Sirianni",r:76}],
+  },
+  PIT:{
+    QB:[{n:"Aaron Rodgers",r:77},{n:"Russell Wilson",r:66}],
+    RB:[{n:"Najee Harris",r:71},{n:"Jaylen Warren",r:66}],
+    WR:[{n:"Calvin Austin III",r:65},{n:"Van Jefferson",r:62},{n:"Mike Williams",r:68}],
+    TE:[{n:"Pat Freiermuth",r:68},{n:"Darnell Washington",r:63}],
+    DEF:[{n:"Pittsburgh Defense",r:82}],
+    HC:[{n:"Mike Tomlin",r:84}],
+  },
+  SF:{
+    QB:[{n:"Brock Purdy",r:84},{n:"Brandon Allen",r:53}],
+    RB:[{n:"Christian McCaffrey",r:93},{n:"Jordan Mason",r:70}],
+    WR:[{n:"Brandon Aiyuk",r:77},{n:"Deebo Samuel",r:80},{n:"Jauan Jennings",r:68}],
+    TE:[{n:"George Kittle",r:97},{n:"Charlie Woerner",r:57}],
+    DEF:[{n:"San Francisco Defense",r:89}],
+    HC:[{n:"Kyle Shanahan",r:87}],
+  },
+  SEA:{
+    QB:[{n:"Sam Darnold",r:83},{n:"Sam Howell",r:61}],
+    RB:[{n:"Kenneth Walker III",r:94},{n:"Zach Charbonnet",r:68}],
+    WR:[{n:"Jaxon Smith-Njigba",r:96},{n:"DK Metcalf",r:84},{n:"Tyler Lockett",r:70}],
+    TE:[{n:"Noah Fant",r:66},{n:"AJ Barner",r:60}],
+    DEF:[{n:"Seattle Defense",r:88}],
+    HC:[{n:"Mike Macdonald",r:90}],
+  },
+  TB:{
+    QB:[{n:"Baker Mayfield",r:80},{n:"Kyle Trask",r:56}],
+    RB:[{n:"Bucky Irving",r:70},{n:"Rachaad White",r:68}],
+    WR:[{n:"Mike Evans",r:85},{n:"Emeka Egbuka",r:69},{n:"Chris Godwin",r:75}],
+    TE:[{n:"Cade Otton",r:65},{n:"Ko Kieft",r:57}],
+    DEF:[{n:"Tampa Bay Defense",r:73}],
+    HC:[{n:"Todd Bowles",r:68}],
+  },
+  TEN:{
+    QB:[{n:"Cam Ward",r:66},{n:"Mason Rudolph",r:55}],
+    RB:[{n:"Tony Pollard",r:72},{n:"Tyjae Spears",r:64}],
+    WR:[{n:"Calvin Ridley",r:72},{n:"Nick Westbrook-Ikhine",r:61},{n:"DeAndre Hopkins",r:72}],
+    TE:[{n:"Chig Okonkwo",r:65},{n:"Josh Whyle",r:57}],
+    DEF:[{n:"Tennessee Defense",r:63}],
+    HC:[{n:"Brian Callahan",r:62}],
+  },
+  WAS:{
+    QB:[{n:"Jayden Daniels",r:79},{n:"Marcus Mariota",r:58}],
+    RB:[{n:"Jacory Croskey-Merritt",r:74},{n:"Austin Ekeler",r:68}],
+    WR:[{n:"Terry McLaurin",r:77},{n:"Jahan Dotson",r:67},{n:"Luke McCaffrey",r:63}],
+    TE:[{n:"John Bates",r:60},{n:"Cole Turner",r:57}],
+    DEF:[{n:"Washington Defense",r:70}],
+    HC:[{n:"Dan Quinn",r:71}],
+  },
+};
+
+// ─── TEAM LEGENDS (retired legends per franchise, 95–99 only) ────────────────
+// pos = which roster slot(s) this legend can fill
+const TEAM_LEGENDS = {
+  ARI:[
+    {n:"Kurt Warner",     r:97, era:"1998–2009", pos:["QB"], note:"2× Super Bowl, 2× NFL MVP"},
+    {n:"Larry Fitzgerald",r:98, era:"2004–2020", pos:["WR1","WR2","WR3"], note:"Second all-time receiving yards"},
+    {n:"Aeneas Williams", r:96, era:"1991–2004", pos:["DEF"], note:"8× Pro Bowl DB, HOF"},
+    {n:"Pat Tillman",     r:95, era:"1998–2001", pos:["DEF"], note:"Legendary safety, Cards icon"},
+  ],
+  ATL:[
+    {n:"Michael Vick",   r:97, era:"2001–2006", pos:["QB"], note:"Most electric dual-threat QB ever"},
+    {n:"Matt Ryan",      r:96, era:"2008–2021", pos:["QB"], note:"2016 NFL MVP, franchise leader"},
+    {n:"Julio Jones",    r:98, era:"2011–2020", pos:["WR1","WR2","WR3"], note:"Best WR of his era, 7× Pro Bowl"},
+    {n:"Deion Sanders",  r:99, era:"1989–1993", pos:["DEF"], note:"Prime Time, HOF CB, 2× Super Bowl"},
+    {n:"Claude Humphrey",r:96, era:"1968–1978", pos:["DEF"], note:"HOF pass rusher, Falcons legend"},
+  ],
+  BAL:[
+    {n:"Ray Lewis",       r:99, era:"1996–2012", pos:["DEF"], note:"Greatest LB ever, 2× DPOY, HOF"},
+    {n:"Ed Reed",         r:99, era:"2002–2012", pos:["DEF"], note:"Greatest FS ever, HOF, DPOY"},
+    {n:"Johnny Unitas",   r:98, era:"1956–1972", pos:["QB"], note:"The Original, 3× NFL MVP, HOF"},
+    {n:"Priest Holmes",   r:96, era:"1997–2001", pos:["RB"], note:"Key to early Ravens runs"},
+  ],
+  BUF:[
+    {n:"Jim Kelly",       r:97, era:"1986–1996", pos:["QB"], note:"4× Super Bowl, HOF, K-Gun architect"},
+    {n:"Bruce Smith",     r:99, era:"1985–2000", pos:["DEF"], note:"All-time sack leader (200), HOF"},
+    {n:"Thurman Thomas",  r:97, era:"1988–1999", pos:["RB"], note:"4× Super Bowl RB, HOF, Bills legend"},
+    {n:"Andre Reed",      r:96, era:"1985–1999", pos:["WR1","WR2","WR3"], note:"HOF WR, K-Gun offense core"},
+    {n:"O.J. Simpson",    r:97, era:"1969–1977", pos:["RB"], note:"First 2,000-yard rusher, HOF"},
+  ],
+  CAR:[
+    {n:"Steve Smith Sr.", r:97, era:"2001–2013", pos:["WR1","WR2","WR3"], note:"Most electric WR in Panthers history"},
+    {n:"Julius Peppers",  r:97, era:"2002–2009", pos:["DEF"], note:"HOF DE, 9× Pro Bowl"},
+    {n:"Sam Mills",       r:96, era:"1995–1997", pos:["DEF"], note:"Keep Pounding — Panthers legend, HOF"},
+    {n:"Jake Delhomme",   r:95, era:"2003–2009", pos:["QB"], note:"Led Panthers to Super Bowl XXXVIII"},
+  ],
+  CHI:[
+    {n:"Walter Payton",   r:99, era:"1975–1987", pos:["RB"], note:"Sweetness — greatest all-around RB ever"},
+    {n:"Dick Butkus",     r:99, era:"1965–1973", pos:["DEF"], note:"Most feared defender in NFL history"},
+    {n:"Gale Sayers",     r:97, era:"1965–1971", pos:["RB"], note:"Greatest open-field runner, HOF"},
+    {n:"Sid Luckman",     r:96, era:"1939–1950", pos:["QB"], note:"5× NFL champion, HOF"},
+    {n:"Brian Urlacher",  r:97, era:"2000–2012", pos:["DEF"], note:"HOF LB, 2005 DPOY, Bears icon"},
+    {n:"Mike Ditka",      r:96, era:"1961–1966", pos:["TE","HC"], note:"HOF TE, iconic Bears HC"},
+    {n:"Bronko Nagurski", r:95, era:"1930–1937", pos:["RB"], note:"Original Bears legend, HOF"},
+  ],
+  CIN:[
+    {n:"Chad Johnson",    r:96, era:"2001–2010", pos:["WR1","WR2","WR3"], note:"6× Pro Bowl, Bengals all-time WR leader"},
+    {n:"Boomer Esiason",  r:96, era:"1984–1997", pos:["QB"], note:"1988 NFL MVP, HOF finalist"},
+    {n:"Cris Collinsworth",r:95,era:"1981–1988", pos:["WR1","WR2","WR3"], note:"3× Pro Bowl, Bengals WR legend"},
+    {n:"Ken Anderson",    r:96, era:"1971–1986", pos:["QB"], note:"1981 NFL MVP, near-HOF career"},
+  ],
+  CLE:[
+    {n:"Jim Brown",       r:99, era:"1957–1965", pos:["RB"], note:"Greatest RB in NFL history, HOF"},
+    {n:"Otto Graham",     r:98, era:"1946–1955", pos:["QB"], note:"10 straight championship games, HOF"},
+    {n:"Ozzie Newsome",   r:97, era:"1978–1990", pos:["TE"], note:"HOF TE, Wizard of Oz, Browns legend"},
+    {n:"Leroy Kelly",     r:96, era:"1964–1973", pos:["RB"], note:"3× rushing title, HOF, Browns star"},
+  ],
+  DAL:[
+    {n:"Roger Staubach",  r:98, era:"1969–1979", pos:["QB"], note:"2× Super Bowl MVP, HOF, Captain America"},
+    {n:"Troy Aikman",     r:97, era:"1989–2000", pos:["QB"], note:"3× Super Bowl, HOF"},
+    {n:"Emmitt Smith",    r:98, era:"1990–2002", pos:["RB"], note:"All-time NFL rushing leader, HOF"},
+    {n:"Michael Irvin",   r:97, era:"1988–1999", pos:["WR1","WR2","WR3"], note:"The Playmaker, HOF, 3× Super Bowl"},
+    {n:"Tony Dorsett",    r:96, era:"1977–1987", pos:["RB"], note:"HOF RB, Super Bowl XII champion"},
+    {n:"Bob Lilly",       r:98, era:"1961–1974", pos:["DEF"], note:"Mr. Cowboy, first Cowboys HOFer, DPOY"},
+    {n:"Randy White",     r:97, era:"1975–1988", pos:["DEF"], note:"Manster, HOF, Super Bowl XII co-MVP"},
+  ],
+  DEN:[
+    {n:"John Elway",      r:97, era:"1983–1998", pos:["QB"], note:"2× Super Bowl, HOF, The Drive"},
+    {n:"Terrell Davis",   r:97, era:"1995–2001", pos:["RB"], note:"Super Bowl XXXII MVP, HOF, 2000-yard rusher"},
+    {n:"Shannon Sharpe",  r:96, era:"1990–2003", pos:["TE"], note:"3× Super Bowl TE, HOF"},
+    {n:"Floyd Little",    r:96, era:"1967–1975", pos:["RB"], note:"The Franchise, HOF, first Broncos great"},
+    {n:"Steve Atwater",   r:97, era:"1989–1998", pos:["DEF"], note:"8× Pro Bowl S, HOF, Broncos icon"},
+  ],
+  DET:[
+    {n:"Barry Sanders",   r:99, era:"1989–1998", pos:["RB"], note:"Most electric runner in NFL history"},
+    {n:"Calvin Johnson",  r:98, era:"2007–2015", pos:["WR1","WR2","WR3"], note:"Megatron — greatest physical WR ever"},
+    {n:"Bobby Layne",     r:96, era:"1950–1958", pos:["QB"], note:"3× NFL Champion, HOF Lions legend"},
+    {n:"Herman Moore",    r:95, era:"1991–2001", pos:["WR1","WR2","WR3"], note:"Single-season reception record (then), Lions WR star"},
+    {n:"Lem Barney",      r:96, era:"1967–1977", pos:["DEF"], note:"HOF CB, 7× Pro Bowl Lions legend"},
+    {n:"Alex Karras",     r:97, era:"1958–1970", pos:["DEF"], note:"HOF DT, Lions icon, intimidating force"},
+  ],
+  GB:[
+    {n:"Bart Starr",      r:98, era:"1956–1971", pos:["QB"], note:"5× NFL champion, 2× Super Bowl MVP, HOF"},
+    {n:"Brett Favre",     r:97, era:"1992–2007", pos:["QB"], note:"3× MVP, Super Bowl XXXI, HOF Packer"},
+    {n:"Don Hutson",      r:98, era:"1935–1945", pos:["WR1","WR2","WR3"], note:"First great WR, 8× scoring title, HOF"},
+    {n:"Reggie White",    r:99, era:"1993–1998", pos:["DEF"], note:"Minister of Defense, HOF, Packers legend"},
+    {n:"Ray Nitschke",    r:98, era:"1958–1972", pos:["DEF"], note:"HOF LB, 5 NFL titles, Packers icon"},
+    {n:"Sterling Sharpe", r:96, era:"1988–1994", pos:["WR1","WR2","WR3"], note:"Best Packer WR before illness cut career"},
+    {n:"Paul Hornung",    r:96, era:"1957–1966", pos:["RB"], note:"Golden Boy, 5× NFL champion, HOF"},
+  ],
+  HOU:[
+    {n:"J.J. Watt",       r:99, era:"2011–2020", pos:["DEF"], note:"3× DPOY, greatest Texan, top-5 DE ever"},
+    {n:"Andre Johnson",   r:97, era:"2003–2014", pos:["WR1","WR2","WR3"], note:"Franchise WR, 2× receiving yards leader"},
+    {n:"Arian Foster",    r:96, era:"2009–2015", pos:["RB"], note:"2010 rushing champion, Texans all-time RB"},
+    {n:"Earl Campbell",   r:99, era:"1978–1984", pos:["RB"], note:"5× Pro Bowl, HOF, Houston Oilers legend"},
+    {n:"Warren Moon",     r:98, era:"1984–1993", pos:["QB"], note:"HOF QB, 5× Grey Cup, Oilers legend"},
+  ],
+  IND:[
+    {n:"Peyton Manning",  r:99, era:"1998–2011", pos:["QB"], note:"5× NFL MVP, 2× Super Bowl, greatest Colt"},
+    {n:"Johnny Unitas",   r:98, era:"1956–1972", pos:["QB"], note:"The Original, greatest early QB, HOF"},
+    {n:"Marvin Harrison", r:98, era:"1996–2008", pos:["WR1","WR2","WR3"], note:"Single-season receptions record (143), HOF"},
+    {n:"Edgerrin James",  r:97, era:"1999–2005", pos:["RB"], note:"HOF, 2× rushing title, Manning–James duo"},
+    {n:"Reggie Wayne",    r:96, era:"2001–2014", pos:["WR1","WR2","WR3"], note:"Six 1,000-yard seasons, Colts WR legend"},
+    {n:"Marshall Faulk",  r:97, era:"1994–1998", pos:["RB"], note:"HOF, best all-purpose RB before STL days"},
+  ],
+  JAX:[
+    {n:"Fred Taylor",     r:96, era:"1998–2008", pos:["RB"], note:"Fragile Fred, franchise all-time rusher"},
+    {n:"Mark Brunell",    r:95, era:"1995–2003", pos:["QB"], note:"Led Jags to 2 AFC Championships"},
+    {n:"Jimmy Smith",     r:96, era:"1995–2005", pos:["WR1","WR2","WR3"], note:"9× 1,000-yard seasons, Jags WR legend"},
+    {n:"Reggie Hayward",  r:95, era:"2002–2009", pos:["DEF"], note:"Jaguars all-time sack leader"},
+  ],
+  KC:[
+    {n:"Len Dawson",      r:96, era:"1962–1975", pos:["QB"], note:"Super Bowl IV MVP, HOF Chiefs legend"},
+    {n:"Derrick Thomas",  r:99, era:"1989–1999", pos:["DEF"], note:"7-sack game record, HOF, greatest Chief"},
+    {n:"Tony Gonzalez",   r:97, era:"1997–2008", pos:["TE"], note:"HOF, redefined the TE position, KC legend"},
+    {n:"Marcus Allen",    r:97, era:"1993–1997", pos:["RB"], note:"HOF, revived career in KC, Super Bowl legend"},
+  ],
+  LV:[
+    {n:"Bo Jackson",      r:99, era:"1987–1990", pos:["RB"], note:"Most athletic human in sports history"},
+    {n:"Jerry Rice",      r:99, era:"2001–2004", pos:["WR1","WR2","WR3"], note:"Greatest WR ever, finished career in OAK"},
+    {n:"Tim Brown",       r:96, era:"1988–2003", pos:["WR1","WR2","WR3"], note:"Mr. Raider, HOF, 14,934 career yards"},
+    {n:"Ken Stabler",     r:97, era:"1970–1979", pos:["QB"], note:"The Snake, Super Bowl XI MVP, HOF"},
+    {n:"Howie Long",      r:97, era:"1981–1993", pos:["DEF"], note:"HOF DE, dominant force on Raiders D"},
+    {n:"Fred Biletnikoff",r:96, era:"1965–1978", pos:["WR1","WR2","WR3"], note:"Super Bowl XI MVP, HOF, sticky fingers"},
+    {n:"Jack Tatum",      r:95, era:"1971–1979", pos:["DEF"], note:"The Assassin, most feared safety in NFL"},
+  ],
+  LAC:[
+    {n:"LaDainian Tomlinson",r:99,era:"2001–2009", pos:["RB"], note:"28 TDs in 2006, HOF, greatest Charger"},
+    {n:"Dan Fouts",       r:98, era:"1973–1987", pos:["QB"], note:"HOF, Air Coryell architect, 3× passing leader"},
+    {n:"Lance Alworth",   r:98, era:"1962–1970", pos:["WR1","WR2","WR3"], note:"Bambi, first AFL player in HOF, 7× All-AFL"},
+    {n:"Kellen Winslow",  r:97, era:"1979–1987", pos:["TE"], note:"Revolutionized TE position, HOF"},
+    {n:"Junior Seau",     r:99, era:"1990–2002", pos:["DEF"], note:"12× Pro Bowl, HOF LB, greatest Charger D"},
+    {n:"Antonio Gates",   r:96, era:"2003–2018", pos:["TE"], note:"Most TD catches by a TE in NFL history (116)"},
+  ],
+  LAR:[
+    {n:"Eric Dickerson",  r:98, era:"1983–1987", pos:["RB"], note:"Single-season rushing record (2,105), HOF"},
+    {n:"Marshall Faulk",  r:98, era:"1999–2005", pos:["RB"], note:"Greatest Greatness show RB, HOF, 2000 MVP"},
+    {n:"Kurt Warner",     r:97, era:"1998–2003", pos:["QB"], note:"Greatest Show on Turf QB, 2× MVP, HOF"},
+    {n:"Deacon Jones",    r:99, era:"1961–1971", pos:["DEF"], note:"Invented the sack, HOF, most feared DE ever"},
+    {n:"Merlin Olsen",    r:97, era:"1962–1976", pos:["DEF"], note:"14× Pro Bowl DT, HOF, Fearsome Foursome"},
+    {n:"Isaac Bruce",     r:96, era:"1994–2007", pos:["WR1","WR2","WR3"], note:"HOF WR, Super Bowl XXXIV TD catch"},
+    {n:"Torry Holt",      r:96, era:"1999–2007", pos:["WR1","WR2","WR3"], note:"Greatest Show co-star, HOF WR"},
+  ],
+  MIA:[
+    {n:"Dan Marino",      r:99, era:"1983–1999", pos:["QB"], note:"Greatest pure passer ever, HOF"},
+    {n:"Larry Csonka",    r:97, era:"1968–1979", pos:["RB"], note:"HOF, 17-0 Super Bowl RB, Dolphins legend"},
+    {n:"Paul Warfield",   r:97, era:"1970–1974", pos:["WR1","WR2","WR3"], note:"HOF WR, perfect 17-0 team member"},
+    {n:"Nick Buoniconti", r:97, era:"1969–1976", pos:["DEF"], note:"HOF LB, led the No-Name Defense, 17-0"},
+    {n:"Bob Griese",      r:96, era:"1967–1980", pos:["QB"], note:"HOF, 2× Super Bowl, architect of 17-0"},
+    {n:"Jason Taylor",    r:97, era:"1997–2011", pos:["DEF"], note:"HOF DE, DPOY, Dolphins all-time sacks"},
+  ],
+  MIN:[
+    {n:"Randy Moss",      r:99, era:"1998–2004", pos:["WR1","WR2","WR3"], note:"Most electrifying WR ever, HOF"},
+    {n:"Adrian Peterson", r:97, era:"2007–2016", pos:["RB"], note:"2012 MVP, 2,097 yards, HOF"},
+    {n:"Fran Tarkenton",  r:96, era:"1961–1978", pos:["QB"], note:"Original scrambler, HOF, Vikings legend"},
+    {n:"Carl Eller",      r:97, era:"1964–1978", pos:["DEF"], note:"HOF DE, Purple People Eaters leader"},
+    {n:"Alan Page",       r:98, era:"1967–1978", pos:["DEF"], note:"Only DT to win NFL MVP (1971), HOF"},
+    {n:"Cris Carter",     r:97, era:"1990–2001", pos:["WR1","WR2","WR3"], note:"HOF WR, master of the sideline catch"},
+    {n:"Chuck Foreman",   r:95, era:"1973–1979", pos:["RB"], note:"3× Pro Bowl, 5 rushing TDs in a game"},
+  ],
+  NE:[
+    {n:"Tom Brady",       r:99, era:"2000–2019", pos:["QB"], note:"7× Super Bowl champion, GOAT"},
+    {n:"Rob Gronkowski",  r:99, era:"2010–2018", pos:["TE"], note:"Greatest TE in NFL history, HOF"},
+    {n:"Randy Moss",      r:99, era:"2007–2010", pos:["WR1","WR2","WR3"], note:"86 TDs with Brady, 23 TDs in 2007"},
+    {n:"Ty Law",          r:96, era:"1995–2004", pos:["DEF"], note:"3× Super Bowl CB, HOF, Pats legend"},
+    {n:"Mike Haynes",     r:97, era:"1976–1982", pos:["DEF"], note:"HOF CB, dominant early Pats DB"},
+  ],
+  NO:[
+    {n:"Drew Brees",      r:98, era:"2006–2020", pos:["QB"], note:"Super Bowl XLIV MVP, 80,358 career yards, HOF"},
+    {n:"Ricky Jackson",   r:97, era:"1981–1993", pos:["DEF"], note:"6× Pro Bowl LB, HOF Saints legend"},
+    {n:"Archie Manning",  r:96, era:"1971–1981", pos:["QB"], note:"The Manning of New Orleans, Saints icon"},
+    {n:"Deuce McAllister",r:96, era:"2001–2008", pos:["RB"], note:"Saints all-time rusher, Super Bowl legend"},
+  ],
+  NYG:[
+    {n:"Lawrence Taylor", r:99, era:"1981–1993", pos:["DEF"], note:"Greatest defensive player in NFL history"},
+    {n:"Frank Gifford",   r:96, era:"1952–1964", pos:["RB"], note:"HOF, 5 NFL titles, Giants legend"},
+    {n:"Sam Huff",        r:96, era:"1956–1963", pos:["DEF"], note:"HOF LB, face of Giants defense"},
+    {n:"Michael Strahan", r:98, era:"1993–2007", pos:["DEF"], note:"HOF DE, single-season sack record (22.5)"},
+    {n:"Tiki Barber",     r:96, era:"1997–2006", pos:["RB"], note:"Giants all-time rusher, 3× Pro Bowl"},
+    {n:"Eli Manning",     r:96, era:"2004–2019", pos:["QB"], note:"2× Super Bowl MVP, slayer of perfect seasons"},
+  ],
+  NYJ:[
+    {n:"Joe Namath",      r:97, era:"1965–1976", pos:["QB"], note:"Super Bowl III MVP, guaranteed the win, HOF"},
+    {n:"Don Maynard",     r:96, era:"1960–1972", pos:["WR1","WR2","WR3"], note:"First 10,000-yard receiver, HOF AFL star"},
+    {n:"Curtis Martin",   r:97, era:"1998–2005", pos:["RB"], note:"HOF, 4× Pro Bowl, Jets all-time rusher"},
+    {n:"Darrelle Revis",  r:98, era:"2007–2015", pos:["DEF"], note:"Revis Island — most dominant CB of his era"},
+    {n:"Mark Gastineau",  r:96, era:"1979–1988", pos:["DEF"], note:"Sack dance innovator, then-record 22 sacks"},
+    {n:"Freeman McNeil",  r:95, era:"1981–1992", pos:["RB"], note:"3× Pro Bowl RB, Jets legend"},
+  ],
+  PHI:[
+    {n:"Reggie White",    r:99, era:"1985–1992", pos:["DEF"], note:"Minister of Defense, HOF, 124 sacks as Eagle"},
+    {n:"Chuck Bednarik",  r:99, era:"1949–1962", pos:["DEF"], note:"Last 60-minute player, HOF, ultimate Eagle"},
+    {n:"Steve Van Buren", r:97, era:"1944–1951", pos:["RB"], note:"HOF, led Eagles to back-to-back titles"},
+    {n:"Harold Carmichael",r:96,era:"1971–1983", pos:["WR1","WR2","WR3"], note:"HOF WR, Eagles all-time receiver then"},
+    {n:"Brian Dawkins",   r:98, era:"1996–2008", pos:["DEF"], note:"HOF, most beloved Eagle, devastating safety"},
+    {n:"Donovan McNabb",  r:96, era:"1999–2009", pos:["QB"], note:"5× Pro Bowl, Super Bowl XXXIX, Eagles legend"},
+  ],
+  PIT:[
+    {n:"Mean Joe Greene",  r:99, era:"1969–1981", pos:["DEF"], note:"Greatest defensive player of his era, HOF"},
+    {n:"Jack Lambert",     r:99, era:"1974–1984", pos:["DEF"], note:"HOF LB, face of Steel Curtain, 4 Super Bowls"},
+    {n:"Terry Bradshaw",   r:97, era:"1970–1983", pos:["QB"], note:"4× Super Bowl champ, 2× SB MVP, HOF"},
+    {n:"Franco Harris",    r:97, era:"1972–1983", pos:["RB"], note:"Immaculate Reception, 4× Super Bowl, HOF"},
+    {n:"Lynn Swann",       r:97, era:"1974–1982", pos:["WR1","WR2","WR3"], note:"Super Bowl X MVP, HOF, acrobatic catches"},
+    {n:"John Stallworth",  r:96, era:"1974–1987", pos:["WR1","WR2","WR3"], note:"4× Super Bowl WR, HOF"},
+    {n:"Jerome Bettis",    r:96, era:"1996–2005", pos:["RB"], note:"The Bus, HOF, 13,662 career yards"},
+    {n:"Hines Ward",       r:96, era:"1998–2011", pos:["WR1","WR2","WR3"], note:"Super Bowl XL MVP, Steelers WR legend"},
+  ],
+  SF:[
+    {n:"Jerry Rice",      r:99, era:"1985–2000", pos:["WR1","WR2","WR3"], note:"Greatest player in NFL history, 22,895 yards"},
+    {n:"Joe Montana",     r:99, era:"1979–1992", pos:["QB"], note:"4× Super Bowl, 3× SB MVP, never threw an INT in SB"},
+    {n:"Ronnie Lott",     r:99, era:"1981–1990", pos:["DEF"], note:"Greatest safety ever, 10× Pro Bowl, HOF"},
+    {n:"Steve Young",     r:97, era:"1987–1999", pos:["QB"], note:"Super Bowl XXIX MVP (6 TDs), HOF"},
+    {n:"Roger Craig",     r:96, era:"1983–1990", pos:["RB"], note:"First 1,000/1,000 season, 3× Super Bowl"},
+    {n:"Charles Haley",   r:96, era:"1986–1991", pos:["DEF"], note:"5× Super Bowl, most dominant pass rusher"},
+    {n:"Patrick Willis",  r:97, era:"2007–2014", pos:["DEF"], note:"7× Pro Bowl LB, best tackler of his era"},
+  ],
+  SEA:[
+    {n:"Steve Largent",   r:97, era:"1976–1989", pos:["WR1","WR2","WR3"], note:"HOF WR, Seahawks legend, 7× Pro Bowl"},
+    {n:"Marshawn Lynch",  r:97, era:"2010–2015", pos:["RB"], note:"Beast Mode, 2× NFC Champion, GOAT of Seattle"},
+    {n:"Cortez Kennedy",  r:98, era:"1990–2000", pos:["DEF"], note:"HOF DT, 1992 DPOY on a 2-14 team"},
+    {n:"Earl Thomas",     r:97, era:"2010–2018", pos:["DEF"], note:"Legion of Boom leader, 6× Pro Bowl safety"},
+    {n:"Richard Sherman", r:96, era:"2011–2017", pos:["DEF"], note:"Best CB of his era, Legion of Boom cornerstone"},
+    {n:"Shaun Alexander",  r:96, era:"2000–2007", pos:["RB"], note:"2005 MVP, 27 TD season, Seahawks all-time rusher"},
+  ],
+  TB:[
+    {n:"Derrick Brooks",  r:99, era:"1995–2008", pos:["DEF"], note:"Greatest OLB ever, HOF, Super Bowl XXXVII"},
+    {n:"Warren Sapp",     r:98, era:"1995–2003", pos:["DEF"], note:"HOF DT, DPOY, anchored Tampa 2 dynasty"},
+    {n:"Lee Roy Selmon",  r:98, era:"1976–1984", pos:["DEF"], note:"HOF DE, first great Buc, franchise icon"},
+    {n:"Ronde Barber",    r:97, era:"1997–2012", pos:["DEF"], note:"HOF CB, Super Bowl XXXVII, 28 career INTs"},
+    {n:"Mike Alstott",    r:95, era:"1996–2006", pos:["RB"], note:"A-Train, beloved fullback, Buccaneers icon"},
+    {n:"John Lynch",      r:96, era:"1993–2003", pos:["DEF"], note:"HOF S, physical enforcer of Tampa 2"},
+  ],
+  TEN:[
+    {n:"Earl Campbell",   r:99, era:"1978–1984", pos:["RB"], note:"Tyler Rose, HOF, most powerful runner ever"},
+    {n:"Warren Moon",     r:98, era:"1984–1993", pos:["QB"], note:"HOF QB, 5× Grey Cup, Oilers legend"},
+    {n:"Steve McNair",    r:97, era:"1995–2005", pos:["QB"], note:"Co-MVP 2003, one play from SB, Titans legend"},
+    {n:"Eddie George",    r:96, era:"1996–2003", pos:["RB"], note:"1000 yards 6 straight years, Titans icon"},
+    {n:"Elvin Bethea",    r:96, era:"1968–1983", pos:["DEF"], note:"HOF DE, Oilers all-time sacks leader"},
+  ],
+  WAS:[
+    {n:"Sammy Baugh",     r:98, era:"1937–1952", pos:["QB"], note:"Greatest early QB, HOF, 6 titles, MVP"},
+    {n:"John Riggins",    r:97, era:"1976–1985", pos:["RB"], note:"Super Bowl XVII MVP, HOF, 166 yards"},
+    {n:"Art Monk",        r:97, era:"1980–1993", pos:["WR1","WR2","WR3"], note:"HOF WR, then-record 106 catches in '84"},
+    {n:"Darrell Green",   r:98, era:"1983–2002", pos:["DEF"], note:"HOF CB, fastest man in NFL, 20 seasons"},
+    {n:"Joe Theismann",   r:95, era:"1974–1985", pos:["QB"], note:"Super Bowl XVII starter, NFC Player of Year"},
+    {n:"Charley Taylor",  r:96, era:"1964–1977", pos:["WR1","WR2","WR3"], note:"HOF WR, Redskins all-time leader"},
+    {n:"Chris Hanburger", r:96, era:"1965–1978", pos:["DEF"], note:"HOF LB, Over the Hill Gang defense anchor"},
+  ],
+};
+
+// ─── WHEEL SVG ───────────────────────────────────────────────────────────────
+// ESPN logo abbreviation overrides
+const ESPN_ID = { WAS:"wsh" };
+const espnLogo = id => {
+  const eid = (ESPN_ID[id] || id).toLowerCase();
+  return `https://a.espncdn.com/i/teamlogos/nfl/500/${eid}.png`;
+};
+
+function LogoFlasher({ spinning, targetTeam, onSpinEnd }) {
+  const [displayIdx, setDisplayIdx] = useState(0);
+  const [isLanded, setIsLanded] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (!spinning) { setIsLanded(false); return; }
+    setIsLanded(false);
+    clearTimeout(timerRef.current);
+
+    const targetIdx = TEAMS.findIndex(t => t.id === targetTeam.id);
+    let idx = Math.floor(Math.random() * TEAMS.length);
+    let speed = 55;
+    let elapsed = 0;
+    const TOTAL = 3600;
+
+    const tick = () => {
+      elapsed += speed;
+      const remaining = TOTAL - elapsed;
+
+      if (remaining <= 0) {
+        setDisplayIdx(targetIdx);
+        setIsLanded(true);
+        onSpinEnd();
+        return;
+      }
+
+      if      (elapsed < TOTAL * 0.55) speed = 55;
+      else if (elapsed < TOTAL * 0.72) speed = 100;
+      else if (elapsed < TOTAL * 0.85) speed = 200;
+      else if (elapsed < TOTAL * 0.93) speed = 360;
+      else                              speed = 520;
+
+      idx = (idx + 1) % TEAMS.length;
+      setDisplayIdx(idx);
+      timerRef.current = setTimeout(tick, speed);
+    };
+
+    timerRef.current = setTimeout(tick, speed);
+    return () => clearTimeout(timerRef.current);
+  }, [spinning]);
+
+  const team = TEAMS[displayIdx];
+
+  return (
+    <div style={{
+      width: 320, height: 320, borderRadius: 16,
+      background: isLanded ? team.p : "#0e0e0e",
+      border: isLanded ? `4px solid ${team.s}` : "4px solid #1e1e1e",
+      display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center",
+      transition: "background 0.35s, border-color 0.35s",
+      boxShadow: isLanded
+        ? `0 0 50px ${team.p}88, 0 0 100px ${team.p}33, inset 0 0 30px rgba(0,0,0,0.3)`
+        : "0 0 20px rgba(0,0,0,0.6)",
+      position: "relative", overflow: "hidden",
+    }}>
+      <style>{`
+        @keyframes flashPulse { from{opacity:0.15} to{opacity:0} }
+        @keyframes logoBounce { 0%{transform:scale(0.7)} 65%{transform:scale(1.1)} 100%{transform:scale(1)} }
+        @keyframes nameSlide { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+      `}</style>
+
+      {spinning && !isLanded && (
+        <div key={displayIdx} style={{
+          position:"absolute", inset:0, borderRadius:12,
+          background:"rgba(255,255,255,0.08)",
+          animation:"flashPulse 0.1s ease-out forwards",
+          pointerEvents:"none",
+        }}/>
+      )}
+
+      <img
+        key={isLanded ? "l"+team.id : "f"+displayIdx}
+        src={espnLogo(team.id)}
+        alt={team.name}
+        style={{
+          width: isLanded ? 185 : 155,
+          height: isLanded ? 185 : 155,
+          objectFit: "contain",
+          filter: spinning && !isLanded
+            ? "brightness(0.65) saturate(0.8)"
+            : "drop-shadow(0 6px 16px rgba(0,0,0,0.55))",
+          animation: isLanded ? "logoBounce 0.55s cubic-bezier(0.34,1.56,0.64,1) forwards" : "none",
+          transition: "width 0.2s, height 0.2s",
+        }}
+        onError={e => { e.target.style.display = "none"; }}
+      />
+
+      {isLanded && (
+        <div style={{
+          marginTop: 14, fontFamily:"'Oswald',sans-serif",
+          fontSize: 15, fontWeight: 700, letterSpacing: 2,
+          color: team.s, textTransform: "uppercase",
+          textShadow: "0 1px 6px rgba(0,0,0,0.6)",
+          animation: "nameSlide 0.4s 0.2s ease-out both",
+        }}>
+          {team.city} {team.name}
+        </div>
+      )}
+
+      {!spinning && !isLanded && (
+        <div style={{
+          fontFamily:"'Oswald',sans-serif", fontSize:12,
+          color:"#2a2a2a", letterSpacing:4, marginTop:8,
+        }}>TAP TO SPIN</div>
+      )}
+    </div>
+  );
+}
+
+// ─── RATING BAR ──────────────────────────────────────────────────────────────
+function RatingBar({r, gold}) {
+  return (
+    <span style={{display:"flex",alignItems:"center",gap:8}}>
+      <span style={{width:60,height:5,background:"#222",borderRadius:3,overflow:"hidden",display:"inline-block"}}>
+        <span style={{width:`${r}%`,height:"100%",background:gold?"#FFD700":"#E31837",display:"block",borderRadius:3}}/>
+      </span>
+      <span style={{fontFamily:"'Oswald',sans-serif",fontSize:14,color:gold?"#FFD700":"#aaa"}}>{r}</span>
+    </span>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+const mkRoster = () => Object.fromEntries(SLOTS.map(s=>[s.key,null]));
+
+export default function App() {
+  const [phase, setPhase]   = useState("setup");
+  const [numP, setNumP]     = useState(2);
+  const [names, setNames]   = useState(["Player 1","Player 2","Player 3","Player 4"]);
+  const [players, setPlayers] = useState(null);
+  const [pidx, setPidx]     = useState(0);
+  const [spinning, setSpinning] = useState(false);
+  const [landed, setLanded] = useState(null);
+  const [modal, setModal]   = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [lbLoaded, setLbLoaded] = useState(false);
+  const [showLb, setShowLb] = useState(false);
+  const [spinTarget, setSpinTarget] = useState(null);
+  const [headshotMap, setHeadshotMap] = useState({});
+
+  // ── fetch ESPN headshots for all teams on mount ──
+  useEffect(() => {
+    const ESPN_TEAM = { WAS:"wsh", LV:"lv", NE:"ne", NO:"no", SF:"sf", TB:"tb", GB:"gb", KC:"kc", JAX:"jax" };
+    const normalize = name => name.toLowerCase().replace(/[^a-z0-9]/g,"");
+
+    // Hardcoded ESPN headshot IDs for current NFL head coaches (reliable fallback)
+    const COACH_IDS = {
+      "andy reid":6760, "john harbaugh":4600, "sean mcdermott":3047655,
+      "ben johnson":5093879, "zac taylor":3046660, "todd monken":3046849,
+      "mike mccarthy":4400, "sean payton":1900, "dan campbell":2576,
+      "matt lafleur":4047616, "demeco ryans":9604, "shane steichen":4047628,
+      "doug pederson":8439, "jim harbaugh":3050, "sean mcvay":3059893,
+      "mike mcdaniel":4047619, "kevin oconnell":4046462, "jerod mayo":11106,
+      "dennis allen":4602, "brian daboll":4046440, "aaron glenn":3027,
+      "nick sirianni":4046536, "mike tomlin":1300, "kyle shanahan":3046843,
+      "mike macdonald":4047969, "todd bowles":4046442, "brian callahan":4046613,
+      "dan quinn":3046854, "jonathan gannon":4046537, "raheem morris":4046449,
+      "dave canales":4047624, "pete carroll":2500,
+    };
+
+    const abbrs = TEAMS.map(t => (ESPN_TEAM[t.id] || t.id).toLowerCase());
+
+    const rosterFetches = abbrs.map(a =>
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/${a}/roster`)
+        .then(r => r.json()).catch(() => null)
+    );
+    const teamFetches = abbrs.map(a =>
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/${a}`)
+        .then(r => r.json()).catch(() => null)
+    );
+    const coachesFetch = fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/coaches`)
+      .then(r => r.json()).catch(() => null);
+
+    Promise.all([Promise.all(rosterFetches), Promise.all(teamFetches), coachesFetch])
+      .then(([rosterResults, teamResults, coachesData]) => {
+        const map = {};
+
+        // seed with hardcoded coach IDs first (lowest priority — API overwrites)
+        Object.entries(COACH_IDS).forEach(([name, id]) => {
+          map[name] = `https://a.espncdn.com/i/headshots/nfl/players/full/${id}.png`;
+        });
+
+        const add = (firstName, lastName, fullName, obj) => {
+          const url = obj?.headshot?.href || obj?.photo?.href || null;
+          if (!url) return;
+          if (fullName) map[normalize(fullName)] = url;
+          else if (firstName && lastName) map[normalize(`${firstName} ${lastName}`)] = url;
+        };
+
+        // players from roster
+        rosterResults.forEach(data => {
+          if (!data) return;
+          (data.athletes || []).forEach(group => {
+            (group.items || []).forEach(a => {
+              if (a.fullName && a.headshot?.href) map[normalize(a.fullName)] = a.headshot.href;
+            });
+          });
+        });
+
+        // coaches from team pages
+        teamResults.forEach(data => {
+          if (!data) return;
+          const coaches = data?.team?.coaches || data?.coaches || [];
+          coaches.forEach(c => {
+            const fn = c.firstName || c.first_name || "";
+            const ln = c.lastName || c.last_name || "";
+            const full = c.fullName || c.name || (fn && ln ? `${fn} ${ln}` : "");
+            add(fn, ln, full, c);
+          });
+        });
+
+        // league-wide coaches list
+        if (coachesData) {
+          const list = coachesData?.items || coachesData?.coaches || coachesData?.athletes || [];
+          list.forEach(c => {
+            const fn = c.firstName || c.first_name || "";
+            const ln = c.lastName || c.last_name || "";
+            const full = c.fullName || c.name || (fn && ln ? `${fn} ${ln}` : "");
+            add(fn, ln, full, c);
+          });
+        }
+
+        setHeadshotMap(map);
+      });
+  }, []);
+
+  // ── leaderboard storage ──
+  const loadLeaderboard = async () => {
+    try {
+      const res = await window.storage.list("lb:", true);
+      if (res && res.keys && res.keys.length > 0) {
+        const entries = await Promise.all(res.keys.map(async k => {
+          try { const r = await window.storage.get(k, true); return r ? JSON.parse(r.value) : null; }
+          catch { return null; }
+        }));
+        setLeaderboard(entries.filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,15));
+      }
+      setLbLoaded(true);
+    } catch { setLbLoaded(true); }
+  };
+
+  const saveToLeaderboard = async (winnerName, sc) => {
+    try {
+      const entry = { name: winnerName, score: Math.round(sc*10)/10, date: new Date().toLocaleDateString() };
+      await window.storage.set("lb:"+Date.now(), JSON.stringify(entry), true);
+    } catch {}
+  };
+
+  // ── global player pool (shared across all devices) ──
+  const [claimed, setClaimed] = useState(new Set());
+  const [poolLoading, setPoolLoading] = useState(false);
+
+  const claimKey = (teamId, playerName) => `pool:${teamId}:${playerName.replace(/[\s']/g,"_")}`;
+
+  const loadClaimed = async () => {
+    try {
+      const res = await window.storage.list("pool:");
+      if (res && res.keys) {
+        setClaimed(new Set(res.keys));
+      }
+    } catch {}
+  };
+
+  const claimPlayer = async (teamId, playerName) => {
+    const key = claimKey(teamId, playerName);
+    try { await window.storage.set(key, "1", true); } catch {}
+    setClaimed(prev => new Set([...prev, key]));
+  };
+
+  const isClaimed = (teamId, playerName) =>
+    claimed.has(claimKey(teamId, playerName));
+
+  // auto-reset pool on new game start (called from START DRAFT)
+  const resetPool = async () => {
+    try {
+      const res = await window.storage.list("pool:");
+      if (res && res.keys) {
+        await Promise.all(res.keys.map(k => window.storage.delete(k, true).catch(()=>{})));
+      }
+      setClaimed(new Set());
+    } catch {}
+  };
+
+  // poll for pool updates every 8s so devices stay in sync
+  useEffect(()=>{
+    loadClaimed();
+    const id = setInterval(loadClaimed, 8000);
+    return ()=>clearInterval(id);
+  });
+
+  // ── helpers ──
+  const score = roster => SLOTS.reduce((s,sl)=>{
+    const p=roster[sl.key]; return p ? s+p.r*sl.weight : s;
+  },0);
+  const filledCount = p => SLOTS.filter(s=>p.roster[s.key]!==null).length;
+  const emptySlots  = p => SLOTS.filter(s=>p.roster[s.key]===null);
+
+  const getHeadshot = playerName => {
+    const key = playerName.toLowerCase().replace(/[^a-z0-9]/g,"");
+    return headshotMap[key] || null;
+  };
+
+  const PlayerHeadshot = ({ name, size=38, isLegend=false }) => {
+    const src = getHeadshot(name);
+    const initials = name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+    const [err, setErr] = useState(false);
+    return src && !err ? (
+      <img src={src} alt={name} onError={()=>setErr(true)}
+        style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",objectPosition:"top",
+          border:`2px solid ${isLegend?"#FFD700":"#2a2a2a"}`,flexShrink:0,background:"#111"}}/>
+    ) : (
+      <div style={{width:size,height:size,borderRadius:"50%",background:isLegend?"#2a1a00":"#1a1a1a",
+        border:`2px solid ${isLegend?"#FFD700":"#2a2a2a"}`,display:"flex",alignItems:"center",
+        justifyContent:"center",flexShrink:0,
+        fontFamily:"'Oswald',sans-serif",fontSize:size*0.35,color:isLegend?"#FFD700":"#555",fontWeight:700}}>
+        {initials}
+      </div>
+    );
+  };
+
+  // ── spin ──
+  const spin = () => {
+    if (spinning || landed) return;
+    const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
+    setSpinTarget(target);
+    setSpinning(true);
+  };
+
+  const handleSpinEnd = () => {
+    setSpinning(false);
+    setLanded(spinTarget);
+  };
+
+  const reSpin = () => {
+    if (spinning) return;
+    setPlayers(prev=>prev.map((p,i)=>i===pidx?{...p,reSpinUsed:true}:p));
+    setLanded(null);
+    const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
+    setSpinTarget(target);
+    setSpinning(true);
+  };
+
+  // ── pick ──
+  const pick = (slot, player, isLegend) => {
+    // claim globally (non-legends are real players; legends skip claiming)
+    if (!isLegend && landed) claimPlayer(landed.id, player.n);
+    let updated;
+    setPlayers(prev=>{
+      updated = prev.map((p,i)=>i!==pidx?p:{
+        ...p,
+        roster:{...p.roster,[slot]:{...player,isLegend}},
+        legendTokens: isLegend?p.legendTokens-1:p.legendTokens,
+      });
+      return updated;
+    });
+    setModal(null);
+    setLanded(null);
+    setTimeout(()=>advance(updated||players),0);
+  };
+
+  const advance = (ps) => {
+    if(ps.every(p=>SLOTS.every(s=>p.roster[s.key]!==null))){
+      const scored = ps.map(p=>({...p,score:SLOTS.reduce((s,sl)=>{const pk=p.roster[sl.key];return pk?s+pk.r*sl.weight:s;},0)})).sort((a,b)=>b.score-a.score);
+      saveToLeaderboard(scored[0].name, scored[0].score).then(()=>loadLeaderboard());
+      setPhase("results"); return;
+    }
+    let next=(pidx+1)%ps.length, tries=0;
+    while(SLOTS.every(s=>ps[next].roster[s.key]!==null)&&tries<ps.length){ next=(next+1)%ps.length; tries++; }
+    setPidx(next); setLanded(null);
+  };
+
+  // ── setup ──
+  if (phase==="setup") return (
+    <div style={S.root}>
+      <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+      <div style={S.setup}>
+        <div style={S.badge}>🏈 NFL LEGEND DRAFT</div>
+        <h1 style={S.title}>WHEEL OF<br/><span style={S.accent}>DESTINY</span></h1>
+        <p style={S.sub}>Spin for teams. Draft legends. Build the ultimate franchise.</p>
+        <div style={S.card}>
+          <div style={S.fLabel}>NUMBER OF PLAYERS</div>
+          <div style={S.numRow}>
+            {[1,2,3,4].map(n=>(
+              <button key={n} onClick={()=>setNumP(n)} style={{...S.numBtn,...(numP===n?S.numBtnOn:{})}}>
+                {n}
+              </button>
+            ))}
+          </div>
+          {Array.from({length:numP},(_,i)=>(
+            <div key={i} style={{marginBottom:14}}>
+              <div style={S.fLabel}>PLAYER {i+1}</div>
+              <input style={S.inp} value={names[i]||`Player ${i+1}`}
+                onChange={e=>{const u=[...names];u[i]=e.target.value;setNames(u);}}
+                placeholder={`Player ${i+1} name`}/>
+            </div>
+          ))}
+          <button style={S.bigBtn} onClick={async ()=>{
+            await resetPool();
+            setPlayers(names.slice(0,numP).map((name,i)=>({id:i,name,roster:mkRoster(),legendTokens:2,reSpinUsed:false})));
+            setPidx(0); setLanded(null); setPhase("game");
+          }}>START DRAFT</button>
+        </div>
+        <div style={S.rules}>
+          <div style={S.fLabel}>HOW IT WORKS</div>
+          <div style={{color:"#555",fontSize:13,lineHeight:1.7}}>
+            Spin to land on an NFL team and pick from their current roster for that slot.
+            You get <strong style={{color:"#e8e8e8"}}>2 Legend Tokens ⭐</strong> — spend one to draft any retired great <em>from that same team</em> instead (all legends rated 95–99).
+            You also get <strong style={{color:"#e8e8e8"}}>1 Re-Spin 🔄</strong> — burn it if you land on a bad team.
+            Highest weighted score wins.
+          </div>
+        </div>
+
+        {/* setup leaderboard */}
+        <div style={{marginTop:16}}>
+          <button style={{...S.bigBtn,background:"#0d0d0d",border:"1px solid #2a2a2a",color:"#FFD700",letterSpacing:2}}
+            onClick={()=>{if(!lbLoaded)loadLeaderboard();setShowLb(v=>!v);}}>
+            {showLb?"▲ HIDE LEADERBOARD":"🏅 ALL-TIME LEADERBOARD"}
+          </button>
+          {showLb&&(
+            <div style={{background:"#0d0d0d",border:"1px solid #1e1e1e",borderTop:"none",borderRadius:"0 0 8px 8px",overflow:"hidden",marginTop:0}}>
+              {!lbLoaded
+                ? <div style={{padding:20,textAlign:"center",color:"#444",fontSize:13}}>Loading…</div>
+                : leaderboard.length===0
+                  ? <div style={{padding:20,textAlign:"center",color:"#333",fontSize:13}}>No scores yet — you're first!</div>
+                  : leaderboard.map((entry,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:14,padding:"11px 18px",borderBottom:"1px solid #141414",background:i===0?"#110d00":"transparent"}}>
+                      <span style={{fontFamily:"'Oswald',sans-serif",fontSize:15,color:i===0?"#FFD700":i===1?"#aaa":i===2?"#cd7f32":"#333",width:24,textAlign:"center",fontWeight:700}}>
+                        {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+                      </span>
+                      <span style={{flex:1,fontSize:14,color:i===0?"#e8e8e8":"#777",fontWeight:i===0?600:400}}>{entry.name}</span>
+                      <span style={{fontFamily:"'Oswald',sans-serif",fontSize:17,color:i===0?"#FFD700":"#555",fontWeight:700}}>{entry.score}</span>
+                      <span style={{fontSize:11,color:"#2a2a2a",minWidth:60,textAlign:"right"}}>{entry.date}</span>
+                    </div>
+                  ))
+              }
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── results ──
+  if (phase==="results") {
+    const sorted=[...players].map(p=>({...p,score:score(p.roster)})).sort((a,b)=>b.score-a.score);
+    return (
+      <div style={S.root}>
+        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+        <div style={S.setup}>
+          <div style={S.badge}>🏆 FINAL STANDINGS</div>
+          <h1 style={S.title}><span style={S.accent}>{sorted[0].name.toUpperCase()}</span><br/>WINS THE DRAFT</h1>
+          {sorted.map((p,rank)=>(
+            <div key={p.id} style={{...S.resCard,...(rank===0?S.resCardWin:{})}}>
+              <div style={S.resHead}>
+                <span style={{fontSize:26}}>{["🥇","🥈","🥉"][rank]||`#${rank+1}`}</span>
+                <span style={{...S.resName}}>{p.name}</span>
+                <span style={S.resScore}>{p.score.toFixed(1)}</span>
+              </div>
+              <div style={S.resGrid}>
+                {SLOTS.map(sl=>{
+                  const pick=p.roster[sl.key];
+                  return (
+                    <div key={sl.key} style={S.resSlot}>
+                      <div style={S.resSlotLabel}>{sl.label} <span style={{color:"#333"}}>×{sl.weight}</span></div>
+                      {pick?(
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <PlayerHeadshot name={pick.n} size={32} isLegend={pick.isLegend}/>
+                          {pick.isLegend&&<span style={{fontSize:11}}>⭐</span>}
+                          <span style={{fontSize:13,color:pick.isLegend?"#FFD700":"#ccc"}}>{pick.n}</span>
+                          <span style={{fontFamily:"'Oswald',sans-serif",fontSize:12,color:pick.isLegend?"#FFD700":"#3a9a3a",marginLeft:2}}>{pick.r}</span>
+                        </div>
+                      ):<span style={{color:"#444",fontSize:12}}>Empty</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <div style={{fontSize:12,color:"#333",textAlign:"center",margin:"12px 0 24px"}}>
+            Weights: QB ×1.5 · DEF ×1.3 · RB ×1.2 · HC ×1.15 · TE ×1.1 · WR ×1.0 · Ratings from 2025 PFF grades
+          </div>
+
+          {/* ── leaderboard ── */}
+          <div style={{marginBottom:24}}>
+            <button style={{...S.bigBtn,background:"#0d0d0d",border:"1px solid #2a2a2a",color:"#FFD700",letterSpacing:2,marginBottom:0}}
+              onClick={()=>{if(!lbLoaded)loadLeaderboard();setShowLb(v=>!v);}}>
+              {showLb?"▲ HIDE LEADERBOARD":"🏅 ALL-TIME LEADERBOARD"}
+            </button>
+            {showLb&&(
+              <div style={{background:"#0d0d0d",border:"1px solid #1e1e1e",borderTop:"none",borderRadius:"0 0 8px 8px",overflow:"hidden"}}>
+                {!lbLoaded
+                  ? <div style={{padding:20,textAlign:"center",color:"#444",fontSize:13}}>Loading…</div>
+                  : leaderboard.length===0
+                    ? <div style={{padding:20,textAlign:"center",color:"#333",fontSize:13}}>No scores yet — you're first!</div>
+                    : leaderboard.map((entry,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:14,padding:"11px 18px",borderBottom:"1px solid #141414",background:i===0?"#110d00":"transparent"}}>
+                        <span style={{fontFamily:"'Oswald',sans-serif",fontSize:15,color:i===0?"#FFD700":i===1?"#aaa":i===2?"#cd7f32":"#333",width:24,textAlign:"center",fontWeight:700}}>
+                          {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+                        </span>
+                        <span style={{flex:1,fontSize:14,color:i===0?"#e8e8e8":"#777",fontWeight:i===0?600:400}}>{entry.name}</span>
+                        <span style={{fontFamily:"'Oswald',sans-serif",fontSize:17,color:i===0?"#FFD700":"#555",fontWeight:700}}>{entry.score}</span>
+                        <span style={{fontSize:11,color:"#2a2a2a",minWidth:60,textAlign:"right"}}>{entry.date}</span>
+                      </div>
+                    ))
+                }
+              </div>
+            )}
+          </div>
+
+          <button style={S.bigBtn} onClick={()=>{setPhase("setup");setLanded(null);setSpinning(false);setShowLb(false);}}>PLAY AGAIN</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── game ──
+  const cur = players[pidx];
+  const empty = emptySlots(cur);
+  const done = empty.length===0;
+  const teamLegends = landed ? (TEAM_LEGENDS[landed.id]||[]) : [];
+
+  return (
+    <div style={S.root}>
+      <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+
+      {/* header */}
+      <div style={S.hdr}>
+        <div style={{fontFamily:"'Oswald',sans-serif",fontSize:18,color:"#fff",letterSpacing:1}}>🏈 NFL WHEEL DRAFT</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {players.map((p,i)=>(
+            <div key={p.id} style={{...S.tab,...(i===pidx?S.tabOn:{})}}>
+              {p.name}<span style={{fontSize:11,color:i===pidx?"#aaa":"#444",marginLeft:6}}>{filledCount(p)}/{SLOTS.length}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.body}>
+        {/* WHEEL */}
+        <div style={S.wheelCol}>
+          <div style={{fontFamily:"'Oswald',sans-serif",fontSize:20,color:"#fff",letterSpacing:1,marginBottom:8}}>
+            {done?`${cur.name} is done!`:`${cur.name}'s Turn`}
+          </div>
+
+          {/* tokens */}
+          <div style={{display:"flex",gap:16,marginBottom:12,fontSize:13}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{color:"#555",letterSpacing:2,fontSize:10}}>LEGENDS</span>
+              {[0,1].map(i=><span key={i} style={{fontSize:18,opacity:i<cur.legendTokens?1:0.18}}>⭐</span>)}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{color:"#555",letterSpacing:2,fontSize:10}}>RE-SPIN</span>
+              <span style={{fontSize:18,opacity:cur.reSpinUsed?0.18:1}}>🔄</span>
+            </div>
+          </div>
+
+          <div style={{position:"relative",display:"flex",justifyContent:"center"}}>
+            <LogoFlasher spinning={spinning} targetTeam={spinTarget || TEAMS[0]} onSpinEnd={handleSpinEnd}/>
+          </div>
+
+          {/* spin / respin buttons */}
+          {!done && (
+            <div style={{display:"flex",gap:10,width:"100%",maxWidth:380,marginTop:12}}>
+              <button style={{...S.spinBtn,flex:1,...(spinning||landed?S.spinOff:{})}}
+                onClick={spin} disabled={spinning||!!landed}>
+                {spinning?"SPINNING…":landed?`${landed.city} ${landed.name}`:"SPIN"}
+              </button>
+              {!cur.reSpinUsed && landed && !spinning && (
+                <button style={S.reSpinBtn} onClick={reSpin}>🔄 RE-SPIN</button>
+              )}
+            </div>
+          )}
+
+          {landed && !spinning && (
+            <div style={{...S.landedBanner,background:landed.p,color:landed.s,marginTop:8}}>
+              <div style={{fontFamily:"'Oswald',sans-serif",fontSize:18,fontWeight:700}}>{landed.city} {landed.name}</div>
+              <div style={{fontSize:11,opacity:.8,marginTop:3}}>Select a slot to fill →</div>
+            </div>
+          )}
+        </div>
+
+        {/* ROSTER */}
+        <div style={S.rosterCol}>
+          <div style={{fontFamily:"'Oswald',sans-serif",fontSize:17,color:"#fff",marginBottom:14,letterSpacing:1}}>
+            {cur.name}'s Roster
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {SLOTS.map(sl=>{
+              const fill=cur.roster[sl.key];
+              const isEmpty=fill===null;
+              const canPick=isEmpty&&landed&&!spinning;
+              const canLegend=isEmpty&&cur.legendTokens>0&&landed&&!spinning;
+              const teamHasLegendForSlot = teamLegends.some(lg=>lg.pos.includes(sl.key));
+              return (
+                <div key={sl.key} style={{...S.row,...(fill?S.rowFill:S.rowEmpty)}}>
+                  {fill && <PlayerHeadshot name={fill.n} isLegend={fill.isLegend}/>}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={S.slotLbl}>{sl.label} <span style={{color:"#2a2a2a"}}>×{sl.weight}</span></div>
+                    {fill?(
+                      <div style={{display:"flex",alignItems:"center",gap:5}}>
+                        {fill.isLegend&&<span style={{fontSize:11}}>⭐</span>}
+                        <span style={{fontSize:14,color:fill.isLegend?"#FFD700":"#e8e8e8",fontWeight:500}}>{fill.n}</span>
+                        <span style={{fontFamily:"'Oswald',sans-serif",fontSize:12,color:fill.isLegend?"#FFD700":"#3a9a3a"}}>{fill.r}</span>
+                      </div>
+                    ):<span style={{fontSize:12,color:"#333",fontStyle:"italic"}}>Empty</span>}
+                  </div>
+                  {isEmpty&&(
+                    <div style={{display:"flex",gap:7,flexShrink:0}}>
+                      {canPick&&<button style={S.pickBtn} onClick={()=>setModal({type:"pick",slot:sl.key})}>PICK</button>}
+                      {canLegend&&teamHasLegendForSlot&&(
+                        <button style={S.legBtn} onClick={()=>setModal({type:"legend",slot:sl.key})}>⭐ LEGEND</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* MODAL */}
+      {modal&&(
+        <div style={S.overlay} onClick={()=>setModal(null)}>
+          <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+            {modal.type==="pick"&&landed&&(()=>{
+              const rosterKey=SLOTS.find(s=>s.key===modal.slot)?.rosterKey;
+              const allOpts=(ROSTERS[landed.id]?.[rosterKey])||[];
+              const available = allOpts.filter(p=>!isClaimed(landed.id, p.n));
+              const taken = allOpts.filter(p=>isClaimed(landed.id, p.n));
+              return (
+                <>
+                  <div style={{...S.mHead,background:landed.p,color:landed.s}}>
+                    {landed.city} {landed.name}
+                    <div style={S.mSub}>Picking: {SLOTS.find(s=>s.key===modal.slot)?.label} · {taken.length} already drafted</div>
+                  </div>
+                  <div style={S.mList}>
+                    {available.map((p,i)=>(
+                      <button key={i} style={S.opt} onClick={()=>pick(modal.slot,p,false)}>
+                        <span style={{fontSize:15,fontWeight:500,flex:1,textAlign:"left"}}>{p.n}</span>
+                        <RatingBar r={p.r}/>
+                      </button>
+                    ))}
+                    {available.length===0&&allOpts.length>0&&(
+                      <div style={{color:"#555",padding:16,textAlign:"center"}}>
+                        <div style={{fontSize:22,marginBottom:8}}>😬</div>
+                        All {SLOTS.find(s=>s.key===modal.slot)?.label}s from this team have been drafted by other players.
+                      </div>
+                    )}
+                    {allOpts.length===0&&<div style={{color:"#555",padding:16}}>No players listed for this position.</div>}
+                    {taken.length>0&&(
+                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #1a1a1a"}}>
+                        <div style={{fontSize:10,letterSpacing:2,color:"#2a2a2a",padding:"0 4px 8px",textTransform:"uppercase"}}>Already Drafted</div>
+                        {taken.map((p,i)=>(
+                          <div key={i} style={{...S.opt,opacity:.35,cursor:"not-allowed",pointerEvents:"none"}}>
+                            <span style={{fontSize:15,flex:1,textAlign:"left",textDecoration:"line-through"}}>{p.n}</span>
+                            <RatingBar r={p.r}/>
+                            <span style={{fontSize:10,color:"#E31837",marginLeft:6}}>TAKEN</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+            {modal.type==="legend"&&landed&&(()=>{
+              const slotLegends=teamLegends.filter(lg=>lg.pos.includes(modal.slot));
+              return (
+                <>
+                  <div style={{...S.mHead,background:"#1a1400",color:"#FFD700",border:"1px solid #4a3800"}}>
+                    ⭐ {landed.city} {landed.name} Legends
+                    <div style={{...S.mSub,color:"#9a7a00"}}>
+                      {SLOTS.find(s=>s.key===modal.slot)?.label} · Uses 1 token ({cur.legendTokens} remaining)
+                    </div>
+                  </div>
+                  <div style={S.mList}>
+                    {slotLegends.map((p,i)=>(
+                      <button key={i} style={{...S.opt,borderColor:"#2a2000"}} onClick={()=>pick(modal.slot,p,true)}>
+                        <div style={{flex:1,textAlign:"left"}}>
+                          <div style={{fontSize:15,fontWeight:600,color:"#FFD700"}}>{p.n}</div>
+                          <div style={{fontSize:11,color:"#666",marginTop:2}}>{p.era} · {p.note}</div>
+                        </div>
+                        <RatingBar r={p.r} gold/>
+                      </button>
+                    ))}
+                    {slotLegends.length===0&&<div style={{color:"#555",padding:16}}>No {SLOTS.find(s=>s.key===modal.slot)?.label} legends for this team.</div>}
+                  </div>
+                </>
+              );
+            })()}
+            <button style={S.closeBtn} onClick={()=>setModal(null)}>✕ CANCEL</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── STYLES ──────────────────────────────────────────────────────────────────
+const S = {
+  root:{minHeight:"100vh",background:"#0a0a0a",color:"#e8e8e8",fontFamily:"'Barlow',sans-serif",overflowX:"hidden"},
+  setup:{maxWidth:540,margin:"0 auto",padding:"52px 24px"},
+  badge:{display:"inline-block",padding:"5px 14px",background:"#111",border:"1px solid #222",borderRadius:4,fontSize:11,letterSpacing:3,color:"#666",marginBottom:22},
+  title:{fontFamily:"'Oswald',sans-serif",fontSize:58,fontWeight:700,lineHeight:1,margin:"0 0 10px",letterSpacing:-1},
+  accent:{color:"#E31837"},
+  sub:{color:"#555",fontSize:15,marginBottom:36,fontWeight:300},
+  card:{background:"#111",border:"1px solid #1e1e1e",borderRadius:12,padding:"28px 26px",marginBottom:20},
+  fLabel:{fontSize:10,letterSpacing:3,color:"#444",marginBottom:10,textTransform:"uppercase"},
+  numRow:{display:"flex",gap:8,marginBottom:24},
+  numBtn:{width:46,height:46,background:"#1a1a1a",border:"1px solid #2a2a2a",borderRadius:8,color:"#666",fontSize:17,fontFamily:"'Oswald',sans-serif",cursor:"pointer"},
+  numBtnOn:{background:"#E31837",border:"1px solid #E31837",color:"#fff"},
+  inp:{width:"100%",background:"#151515",border:"1px solid #2a2a2a",borderRadius:6,padding:"10px 14px",color:"#e8e8e8",fontSize:15,fontFamily:"'Barlow',sans-serif",boxSizing:"border-box",outline:"none"},
+  bigBtn:{width:"100%",padding:"14px",background:"#E31837",border:"none",borderRadius:8,color:"#fff",fontSize:15,fontFamily:"'Oswald',sans-serif",fontWeight:600,letterSpacing:2,cursor:"pointer",marginTop:6},
+  rules:{background:"#0d0d0d",border:"1px solid #181818",borderRadius:8,padding:"18px 22px"},
+  hdr:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 22px",borderBottom:"1px solid #151515",background:"#0d0d0d",flexWrap:"wrap",gap:10},
+  tab:{padding:"5px 14px",background:"#151515",border:"1px solid #222",borderRadius:6,fontSize:13,color:"#555",display:"flex",alignItems:"center"},
+  tabOn:{background:"#1a0808",border:"1px solid #E31837",color:"#fff"},
+  body:{display:"flex",flexWrap:"wrap"},
+  wheelCol:{flex:"0 0 420px",minWidth:280,padding:"28px 22px",borderRight:"1px solid #151515",display:"flex",flexDirection:"column",alignItems:"center"},
+  rosterCol:{flex:1,minWidth:280,padding:"22px",overflowY:"auto",maxHeight:"calc(100vh - 62px)"},
+  spinBtn:{padding:"13px 24px",background:"#E31837",border:"none",borderRadius:8,color:"#fff",fontSize:14,fontFamily:"'Oswald',sans-serif",fontWeight:600,letterSpacing:2,cursor:"pointer"},
+  spinOff:{background:"#1e1e1e",color:"#444",cursor:"not-allowed"},
+  reSpinBtn:{padding:"13px 18px",background:"#111",border:"1px solid #3a3a00",borderRadius:8,color:"#FFD700",fontSize:13,fontFamily:"'Oswald',sans-serif",letterSpacing:1,cursor:"pointer",flexShrink:0},
+  landedBanner:{width:"100%",maxWidth:380,borderRadius:8,padding:"12px 18px",textAlign:"center"},
+  row:{display:"flex",alignItems:"center",padding:"11px 14px",borderRadius:8,border:"1px solid",gap:10},
+  rowEmpty:{background:"#0f0f0f",borderColor:"#1e1e1e"},
+  rowFill:{background:"#111",borderColor:"#1a2a1a"},
+  slotLbl:{fontSize:9,letterSpacing:2,color:"#444",marginBottom:3,textTransform:"uppercase"},
+  pickBtn:{padding:"6px 12px",background:"#E31837",border:"none",borderRadius:6,color:"#fff",fontSize:11,fontFamily:"'Oswald',sans-serif",letterSpacing:1,cursor:"pointer",whiteSpace:"nowrap"},
+  legBtn:{padding:"6px 10px",background:"#140f00",border:"1px solid #3a2800",borderRadius:6,color:"#FFD700",fontSize:10,fontFamily:"'Oswald',sans-serif",letterSpacing:.5,cursor:"pointer",whiteSpace:"nowrap"},
+  overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:20},
+  modalBox:{background:"#111",border:"1px solid #222",borderRadius:12,width:"100%",maxWidth:480,maxHeight:"82vh",overflow:"hidden",display:"flex",flexDirection:"column"},
+  mHead:{padding:"18px 22px",fontFamily:"'Oswald',sans-serif",fontSize:19,fontWeight:700,letterSpacing:1},
+  mSub:{fontSize:12,opacity:.75,marginTop:4,fontFamily:"'Barlow',sans-serif",fontWeight:400,letterSpacing:0},
+  mList:{overflowY:"auto",flex:1,padding:10,display:"flex",flexDirection:"column",gap:6},
+  opt:{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:"#161616",border:"1px solid #242424",borderRadius:8,color:"#e8e8e8",cursor:"pointer",textAlign:"left"},
+  closeBtn:{margin:"10px",padding:"9px",background:"none",border:"1px solid #222",borderRadius:8,color:"#555",cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1,fontSize:12},
+  resCard:{background:"#111",border:"1px solid #1e1e1e",borderRadius:12,marginBottom:14,overflow:"hidden"},
+  resCardWin:{border:"1px solid #3a2e00",boxShadow:"0 0 24px rgba(255,215,0,.08)"},
+  resHead:{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",borderBottom:"1px solid #181818"},
+  resName:{fontFamily:"'Oswald',sans-serif",fontSize:19,fontWeight:600,flex:1,color:"#fff"},
+  resScore:{fontFamily:"'Oswald',sans-serif",fontSize:22,color:"#FFD700",fontWeight:700},
+  resGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:1,background:"#181818"},
+  resSlot:{padding:"9px 14px",background:"#111"},
+  resSlotLabel:{fontSize:9,letterSpacing:2,color:"#333",marginBottom:3},
+};
