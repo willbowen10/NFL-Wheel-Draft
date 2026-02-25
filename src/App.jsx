@@ -893,7 +893,7 @@ export default function App() {
     loadClaimed();
     const id = setInterval(loadClaimed, 8000);
     return ()=>clearInterval(id);
-  });
+  }, []);
 
   // ── helpers ──
   const score = roster => SLOTS.reduce((s,sl)=>{
