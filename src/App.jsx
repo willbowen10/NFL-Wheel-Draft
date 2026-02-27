@@ -706,6 +706,222 @@ function PlayerHeadshot({ name, headshotMap, size=38, isLegend=false }) {
   );
 }
 
+
+// ─── SOUND ENGINE ────────────────────────────────────────────────────────────
+const SFX = (() => {
+  let ctx = null;
+  const getCtx = () => {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    return ctx;
+  };
+
+  let _muted = false;
+  const setMuted = (v) => { _muted = v; };
+  const play = (fn) => { if (_muted) return; try { fn(getCtx()); } catch(e) {} };
+
+  // Rapid ticking while spinning — tempo increases over time
+  let spinInterval = null;
+  const startSpin = () => {
+    SFX.stopSpin();
+    let delay = 120;
+    const tick = () => {
+      play(c => {
+        const o = c.createOscillator();
+        const g = c.createGain();
+        o.connect(g); g.connect(c.destination);
+        o.frequency.value = 380 + Math.random() * 80;
+        o.type = "square";
+        g.gain.setValueAtTime(0.08, c.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.04);
+        o.start(c.currentTime);
+        o.stop(c.currentTime + 0.04);
+      });
+      delay = Math.max(40, delay * 0.96);
+      spinInterval = setTimeout(tick, delay);
+    };
+    tick();
+  };
+  const stopSpin = () => { clearTimeout(spinInterval); spinInterval = null; };
+
+  // Landing — triumphant thud + shimmer
+  const land = (isGood) => play(c => {
+    const now = c.currentTime;
+    // bass thud
+    const o1 = c.createOscillator();
+    const g1 = c.createGain();
+    o1.connect(g1); g1.connect(c.destination);
+    o1.type = "sine";
+    o1.frequency.setValueAtTime(isGood ? 220 : 140, now);
+    o1.frequency.exponentialRampToValueAtTime(isGood ? 110 : 60, now + 0.3);
+    g1.gain.setValueAtTime(0.5, now);
+    g1.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    o1.start(now); o1.stop(now + 0.4);
+    // shimmer
+    [0, 0.05, 0.1].forEach((t, i) => {
+      const o2 = c.createOscillator();
+      const g2 = c.createGain();
+      o2.connect(g2); g2.connect(c.destination);
+      o2.type = "triangle";
+      o2.frequency.value = isGood ? [880, 1100, 1320][i] : [440, 550, 660][i];
+      g2.gain.setValueAtTime(0.12, now + t);
+      g2.gain.exponentialRampToValueAtTime(0.001, now + t + 0.25);
+      o2.start(now + t); o2.stop(now + t + 0.25);
+    });
+  });
+
+  // Pick regular player — satisfying click + tone
+  const pick = () => play(c => {
+    const now = c.currentTime;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.connect(g); g.connect(c.destination);
+    o.type = "triangle";
+    o.frequency.setValueAtTime(660, now);
+    o.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+    g.gain.setValueAtTime(0.2, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    o.start(now); o.stop(now + 0.18);
+  });
+
+  // Legend pick — golden fanfare
+  const legend = () => play(c => {
+    const now = c.currentTime;
+    [[0, 523], [0.1, 659], [0.2, 784], [0.3, 1047]].forEach(([t, freq]) => {
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.connect(g); g.connect(c.destination);
+      o.type = "sine";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.25, now + t);
+      g.gain.exponentialRampToValueAtTime(0.001, now + t + 0.35);
+      o.start(now + t); o.stop(now + t + 0.35);
+    });
+  });
+
+  // Button click — subtle tick
+  const click = () => play(c => {
+    const now = c.currentTime;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.connect(g); g.connect(c.destination);
+    o.type = "sine";
+    o.frequency.value = 800;
+    g.gain.setValueAtTime(0.06, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    o.start(now); o.stop(now + 0.06);
+  });
+
+  // Respin — whoosh down
+  const respin = () => play(c => {
+    const now = c.currentTime;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.connect(g); g.connect(c.destination);
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(600, now);
+    o.frequency.exponentialRampToValueAtTime(150, now + 0.3);
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    o.start(now); o.stop(now + 0.3);
+  });
+
+  // Game over — victory fanfare
+  const victory = () => play(c => {
+    const now = c.currentTime;
+    [[0,392],[0.15,523],[0.3,659],[0.45,784],[0.6,1047],[0.75,1047]].forEach(([t,freq]) => {
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.connect(g); g.connect(c.destination);
+      o.type = "sine";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.3, now + t);
+      g.gain.exponentialRampToValueAtTime(0.001, now + t + 0.4);
+      o.start(now + t); o.stop(now + t + 0.4);
+    });
+  });
+
+  // NFL Draft-style intro fanfare — ascending brass chime
+  const intro = () => play(c => {
+    const now = c.currentTime;
+    // 4-note ascending brass fanfare
+    const notes = [
+      {t:0,    freq:392, dur:0.18, gain:0.4},  // G4
+      {t:0.18, freq:523, dur:0.18, gain:0.4},  // C5
+      {t:0.36, freq:659, dur:0.18, gain:0.4},  // E5
+      {t:0.54, freq:784, dur:0.5,  gain:0.5},  // G5 — held
+    ];
+    notes.forEach(({t, freq, dur, gain}) => {
+      // Brass body
+      const o = c.createOscillator();
+      const g = c.createGain();
+      const dist = c.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i=0;i<256;i++) { const x=i*2/256-1; curve[i]=x*(1+0.8*Math.abs(x))/(1+0.8); }
+      dist.curve = curve;
+      o.connect(dist); dist.connect(g); g.connect(c.destination);
+      o.type = "sawtooth";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0, now + t);
+      g.gain.linearRampToValueAtTime(gain, now + t + 0.04);
+      g.gain.setValueAtTime(gain, now + t + dur - 0.08);
+      g.gain.linearRampToValueAtTime(0, now + t + dur);
+      o.start(now + t); o.stop(now + t + dur + 0.05);
+      // Harmonic shimmer on top
+      const o2 = c.createOscillator();
+      const g2 = c.createGain();
+      o2.connect(g2); g2.connect(c.destination);
+      o2.type = "sine";
+      o2.frequency.value = freq * 2;
+      g2.gain.setValueAtTime(0, now + t);
+      g2.gain.linearRampToValueAtTime(gain * 0.15, now + t + 0.04);
+      g2.gain.linearRampToValueAtTime(0, now + t + dur);
+      o2.start(now + t); o2.stop(now + t + dur + 0.05);
+    });
+    // Low reverb tail
+    const sub = c.createOscillator();
+    const subG = c.createGain();
+    sub.connect(subG); subG.connect(c.destination);
+    sub.type = "sine";
+    sub.frequency.value = 98;
+    subG.gain.setValueAtTime(0.2, now + 0.54);
+    subG.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+    sub.start(now + 0.54); sub.stop(now + 1.5);
+  });
+
+  // Fart sound for the Jaguars 🤌
+  const fart = () => play(c => {
+    const now = c.currentTime;
+    const bufSize = c.sampleRate * 0.6;
+    const buf = c.createBuffer(1, bufSize, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 0.4);
+    }
+    const noise = c.createBufferSource();
+    noise.buffer = buf;
+    const filter = c.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(180, now);
+    filter.frequency.exponentialRampToValueAtTime(60, now + 0.5);
+    filter.Q.value = 2.5;
+    const g = c.createGain();
+    g.gain.setValueAtTime(1.2, now);
+    g.gain.setValueAtTime(0.9, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    // wobble for wetness
+    const lfo = c.createOscillator();
+    const lfoG = c.createGain();
+    lfo.frequency.value = 22;
+    lfoG.gain.value = 40;
+    lfo.connect(lfoG); lfoG.connect(filter.frequency);
+    noise.connect(filter); filter.connect(g); g.connect(c.destination);
+    noise.start(now); noise.stop(now + 0.6);
+    lfo.start(now); lfo.stop(now + 0.6);
+  });
+
+  return { startSpin, stopSpin, land, pick, legend, click, respin, victory, setMuted, intro, fart };
+})();
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 const mkRoster = () => Object.fromEntries(SLOTS.map(s=>[s.key,null]));
 
@@ -722,6 +938,8 @@ export default function App() {
   const [lbLoaded, setLbLoaded] = useState(false);
   const [showLb, setShowLb] = useState(false);
   const [spinTarget, setSpinTarget] = useState(null);
+  const [muted, setMuted] = useState(false);
+  useEffect(() => { SFX.setMuted(muted); }, [muted]);
   const [headshotMap, setHeadshotMap] = useState({});
 
   // ── fetch ESPN headshots for all teams on mount ──
@@ -886,23 +1104,33 @@ export default function App() {
   // ── spin ──
   const spin = () => {
     if (spinning || landed) return;
+    SFX.click();
     const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
     setSpinTarget(target);
     setSpinning(true);
+    SFX.startSpin();
   };
 
   const handleSpinEnd = () => {
+    SFX.stopSpin();
     setSpinning(false);
     setLanded(spinTarget);
+    if (spinTarget && spinTarget.id === "JAX") {
+      SFX.fart();
+    } else {
+      SFX.land(true);
+    }
   };
 
   const reSpin = () => {
     if (spinning) return;
+    SFX.respin();
     setPlayers(prev=>prev.map((p,i)=>i===pidx?{...p,reSpinUsed:true}:p));
     setLanded(null);
     const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
     setSpinTarget(target);
     setSpinning(true);
+    SFX.startSpin();
   };
 
   // ── pick ──
@@ -912,6 +1140,7 @@ export default function App() {
       if (isClaimed(landed.id, player.n)) return; // hard block double-pick
       claimPlayer(landed.id, player.n);
     }
+    if (isLegend) SFX.legend(); else SFX.pick();
     let updated;
     setPlayers(prev=>{
       updated = prev.map((p,i)=>i!==pidx?p:{
@@ -930,7 +1159,7 @@ export default function App() {
     if(ps.every(p=>SLOTS.every(s=>p.roster[s.key]!==null))){
       const scored = ps.map(p=>({...p,score:SLOTS.reduce((s,sl)=>{const pk=p.roster[sl.key];return pk?s+pk.r*sl.weight:s;},0)})).sort((a,b)=>b.score-a.score);
       saveToLeaderboard(scored[0].name, scored[0].score).then(()=>loadLeaderboard());
-      setPhase("results"); return;
+      SFX.victory(); setPhase("results"); return;
     }
     let next=(pidx+1)%ps.length, tries=0;
     while(SLOTS.every(s=>ps[next].roster[s.key]!==null)&&tries<ps.length){ next=(next+1)%ps.length; tries++; }
@@ -941,6 +1170,17 @@ export default function App() {
   if (phase==="setup") return (
     <div style={S.root}>
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+      <button onClick={()=>setMuted(m=>!m)} style={{
+        position:"fixed",top:14,right:14,zIndex:9999,
+        background:"rgba(20,20,20,0.85)",border:"1px solid #333",
+        borderRadius:"50%",width:40,height:40,cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:18,backdropFilter:"blur(4px)",transition:"all 0.2s",
+        boxShadow:"0 2px 8px rgba(0,0,0,0.4)"
+      }} title={muted?"Unmute":"Mute"}>
+        {muted ? "🔇" : "🔊"}
+      </button>
+
       <div style={S.setup}>
         <div style={S.badge}>🏈 NFL LEGEND DRAFT</div>
         <h1 style={S.title}>WHEEL OF<br/><span style={S.accent}>DESTINY</span></h1>
@@ -965,7 +1205,7 @@ export default function App() {
           <button style={S.bigBtn} onClick={async ()=>{
             await resetPool();
             setPlayers(names.slice(0,numP).map((name,i)=>({id:i,name,roster:mkRoster(),legendTokens:2,reSpinUsed:false})));
-            setPidx(0); setLanded(null); setPhase("game");
+            setPidx(0); setLanded(null); SFX.intro(); setPhase("game");
           }}>START DRAFT</button>
         </div>
         <div style={S.rules}>
@@ -1014,6 +1254,17 @@ export default function App() {
     return (
       <div style={S.root}>
         <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+      <button onClick={()=>setMuted(m=>!m)} style={{
+        position:"fixed",top:14,right:14,zIndex:9999,
+        background:"rgba(20,20,20,0.85)",border:"1px solid #333",
+        borderRadius:"50%",width:40,height:40,cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:18,backdropFilter:"blur(4px)",transition:"all 0.2s",
+        boxShadow:"0 2px 8px rgba(0,0,0,0.4)"
+      }} title={muted?"Unmute":"Mute"}>
+        {muted ? "🔇" : "🔊"}
+      </button>
+
         <div style={S.setup}>
           <div style={S.badge}>🏆 FINAL STANDINGS</div>
           <h1 style={S.title}><span style={S.accent}>{sorted[0].name.toUpperCase()}</span><br/>WINS THE DRAFT</h1>
@@ -1090,6 +1341,17 @@ export default function App() {
   return (
     <div style={S.root}>
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+      <button onClick={()=>setMuted(m=>!m)} style={{
+        position:"fixed",top:14,right:14,zIndex:9999,
+        background:"rgba(20,20,20,0.85)",border:"1px solid #333",
+        borderRadius:"50%",width:40,height:40,cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:18,backdropFilter:"blur(4px)",transition:"all 0.2s",
+        boxShadow:"0 2px 8px rgba(0,0,0,0.4)"
+      }} title={muted?"Unmute":"Mute"}>
+        {muted ? "🔇" : "🔊"}
+      </button>
+
 
       {/* header */}
       <div style={S.hdr}>
