@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { createRoom, joinRoom, startGame, subscribeRoom, writeSpin, writePick, writeReSpin, cleanupRoom, genCode } from "./firebase";
 
 // ─── NFL TEAMS ───────────────────────────────────────────────────────────────
 const TEAMS = [
@@ -765,18 +766,49 @@ const SFX = (() => {
     });
   });
 
-  // Pick regular player — satisfying click + tone
+  // Pick regular player — chunky mechanical click
   const pick = () => play(c => {
     const now = c.currentTime;
+
+    // Transient click body — short noise burst
+    const bufSize = Math.floor(c.sampleRate * 0.015);
+    const buf = c.createBuffer(1, bufSize, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+    }
+    const click = c.createBufferSource();
+    click.buffer = buf;
+    const clickF = c.createBiquadFilter();
+    clickF.type = "bandpass";
+    clickF.frequency.value = 3200;
+    clickF.Q.value = 0.8;
+    const clickG = c.createGain();
+    clickG.gain.value = 1.1;
+    click.connect(clickF); clickF.connect(clickG); clickG.connect(c.destination);
+    click.start(now); click.stop(now + 0.02);
+
+    // Warm tonal thud underneath
     const o = c.createOscillator();
     const g = c.createGain();
     o.connect(g); g.connect(c.destination);
-    o.type = "triangle";
-    o.frequency.setValueAtTime(660, now);
-    o.frequency.exponentialRampToValueAtTime(880, now + 0.1);
-    g.gain.setValueAtTime(0.2, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-    o.start(now); o.stop(now + 0.18);
+    o.type = "sine";
+    o.frequency.setValueAtTime(280, now);
+    o.frequency.exponentialRampToValueAtTime(140, now + 0.12);
+    g.gain.setValueAtTime(0.55, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    o.start(now); o.stop(now + 0.15);
+
+    // Short high snap on top for presence
+    const o2 = c.createOscillator();
+    const g2 = c.createGain();
+    o2.connect(g2); g2.connect(c.destination);
+    o2.type = "triangle";
+    o2.frequency.setValueAtTime(1100, now);
+    o2.frequency.exponentialRampToValueAtTime(600, now + 0.06);
+    g2.gain.setValueAtTime(0.18, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    o2.start(now); o2.stop(now + 0.08);
   });
 
   // Legend pick — golden fanfare
@@ -884,45 +916,86 @@ const SFX = (() => {
     sub.start(now + 0.54); sub.stop(now + 1.5);
   });
 
-  // Fart sound for the Jaguars 🤌
+  // Fart sound for the Jaguars & Titans 💨 — high pitched, loud, medium length
   const fart = () => play(c => {
     const now = c.currentTime;
-    const bufSize = c.sampleRate * 0.6;
+    const dur = 0.75;
+    const bufSize = Math.floor(c.sampleRate * dur);
     const buf = c.createBuffer(1, bufSize, c.sampleRate);
     const data = buf.getChannelData(0);
+
+    // white noise base — higher pitched needs less brown filtering
     for (let i = 0; i < bufSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 0.4);
+      const t = i / bufSize;
+      const env = Math.pow(Math.sin(Math.PI * t * 0.9), 0.5);
+      data[i] = (Math.random() * 2 - 1) * env;
     }
+
     const noise = c.createBufferSource();
     noise.buffer = buf;
-    const filter = c.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.frequency.setValueAtTime(180, now);
-    filter.frequency.exponentialRampToValueAtTime(60, now + 0.5);
-    filter.Q.value = 2.5;
-    const g = c.createGain();
-    g.gain.setValueAtTime(1.2, now);
-    g.gain.setValueAtTime(0.9, now + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-    // wobble for wetness
+
+    // High bandpass — center around 600-900hz for that squeaky quality
+    const f1 = c.createBiquadFilter();
+    f1.type = "bandpass";
+    f1.frequency.setValueAtTime(900, now);
+    f1.frequency.exponentialRampToValueAtTime(420, now + dur);
+    f1.Q.value = 3.5;
+
+    // Tight upper layer for the squeak
+    const f2 = c.createBiquadFilter();
+    f2.type = "bandpass";
+    f2.frequency.setValueAtTime(1400, now);
+    f2.frequency.exponentialRampToValueAtTime(700, now + dur * 0.5);
+    f2.Q.value = 5;
+
+    const g1 = c.createGain();
+    g1.gain.setValueAtTime(3.5, now);
+    g1.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    const g2 = c.createGain();
+    g2.gain.value = 1.2;
+
+    // Fast LFO flutter — higher pitched farts have faster flutter
     const lfo = c.createOscillator();
-    const lfoG = c.createGain();
-    lfo.frequency.value = 22;
-    lfoG.gain.value = 40;
-    lfo.connect(lfoG); lfoG.connect(filter.frequency);
-    noise.connect(filter); filter.connect(g); g.connect(c.destination);
-    noise.start(now); noise.stop(now + 0.6);
-    lfo.start(now); lfo.stop(now + 0.6);
+    const lfoGain = c.createGain();
+    lfo.type = "sine";
+    lfo.frequency.setValueAtTime(45, now);
+    lfo.frequency.linearRampToValueAtTime(15, now + dur);
+    lfoGain.gain.setValueAtTime(300, now);
+    lfoGain.gain.linearRampToValueAtTime(80, now + dur);
+    lfo.connect(lfoGain); lfoGain.connect(f1.frequency);
+
+    noise.connect(f1); f1.connect(g1); g1.connect(c.destination);
+    noise.connect(f2); f2.connect(g2); g2.connect(c.destination);
+    noise.start(now); noise.stop(now + dur + 0.05);
+    lfo.start(now); lfo.stop(now + dur + 0.05);
   });
 
   return { startSpin, stopSpin, land, pick, legend, click, respin, victory, setMuted, intro, fart };
 })();
 
+
+// ─── MUTE BUTTON ─────────────────────────────────────────────────────────────
+function MuteBtn({ muted, setMuted }) {
+  return (
+    <button onClick={()=>setMuted(m=>!m)} style={{
+      position:"fixed",top:14,right:14,zIndex:9999,
+      background:"rgba(20,20,20,0.85)",border:"1px solid #333",
+      borderRadius:"50%",width:40,height:40,cursor:"pointer",
+      display:"flex",alignItems:"center",justifyContent:"center",
+      fontSize:18,backdropFilter:"blur(4px)",transition:"all 0.2s",
+      boxShadow:"0 2px 8px rgba(0,0,0,0.4)"
+    }} title={muted?"Unmute":"Mute"}>
+      {muted ? "🔇" : "🔊"}
+    </button>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 const mkRoster = () => Object.fromEntries(SLOTS.map(s=>[s.key,null]));
 
 export default function App() {
-  const [phase, setPhase]   = useState("setup");
+  const [phase, setPhase]   = useState("menu");
   const [numP, setNumP]     = useState(2);
   const [names, setNames]   = useState(["Player 1","Player 2","Player 3","Player 4"]);
   const [players, setPlayers] = useState(null);
@@ -939,6 +1012,17 @@ export default function App() {
   useEffect(() => { SFX.setMuted(muted); }, [muted]);
   const [headshotMap, setHeadshotMap] = useState({});
 
+  // ── online multiplayer state ──
+  const [gameMode, setGameMode] = useState(null); // null | "solo" | "local" | "draft" | "blitz"
+  const [roomCode, setRoomCode] = useState("");
+  const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [myPid, setMyPid] = useState(null);     // "p0","p1","p2","p3"
+  const [isHost, setIsHost] = useState(false);
+  const [roomData, setRoomData] = useState(null); // live Firebase room
+  const [onlineError, setOnlineError] = useState("");
+  const [lobbyName, setLobbyName] = useState("");
+  const [onlineNumPlayers, setOnlineNumPlayers] = useState(2);
+
   // ── fetch ESPN headshots for all teams on mount ──
   useEffect(() => {
     const ESPN_TEAM = { WAS:"wsh", LV:"lv", NE:"ne", NO:"no", SF:"sf", TB:"tb", GB:"gb", KC:"kc", JAX:"jax" };
@@ -946,16 +1030,16 @@ export default function App() {
 
     // Hardcoded ESPN headshot IDs for current NFL head coaches (reliable fallback)
     const COACH_IDS = {
-      "andy reid":6760, "john harbaugh":4600, "sean mcdermott":3047655,
+      "andy reid":6760, "john harbaugh":4600, "joe brady":4047637,
       "ben johnson":5093879, "zac taylor":3046660, "todd monken":3046849,
-      "mike mccarthy":4400, "sean payton":1900, "dan campbell":2576,
+      "brian schottenheimer":4047638, "sean payton":1900, "dan campbell":2576,
       "matt lafleur":4047616, "demeco ryans":9604, "shane steichen":4047628,
-      "doug pederson":8439, "jim harbaugh":3050, "sean mcvay":3059893,
-      "mike mcdaniel":4047619, "kevin oconnell":4046462, "jerod mayo":11106,
-      "dennis allen":4602, "brian daboll":4046440, "aaron glenn":3027,
-      "nick sirianni":4046536, "mike tomlin":1300, "kyle shanahan":3046843,
-      "mike macdonald":4047969, "todd bowles":4046442, "brian callahan":4046613,
-      "dan quinn":3046854, "jonathan gannon":4046537, "raheem morris":4046449,
+      "liam coen":4047640, "jim harbaugh":3050, "sean mcvay":3059893,
+      "mike mcdaniel":4047619, "kevin oconnell":4046462, "mike vrabel":2576123,
+      "dennis allen":4602, "john harbaugh":4600, "aaron glenn":3027,
+      "nick sirianni":4046536, "mike mccarthy":4400, "kyle shanahan":3046843,
+      "mike macdonald":4047969, "todd bowles":4046442, "robert saleh":4047636,
+      "dan quinn":3046854, "jonathan gannon":4046537, "kevin stefanski":4046538,
       "dave canales":4047624, "pete carroll":2500,
     };
 
@@ -979,6 +1063,16 @@ export default function App() {
         // seed with hardcoded coach IDs first (lowest priority — API overwrites)
         Object.entries(COACH_IDS).forEach(([name, id]) => {
           map[name] = `https://a.espncdn.com/i/headshots/nfl/players/full/${id}.png`;
+        });
+
+        // hardcoded player IDs for names that don't normalize correctly
+        const PLAYER_IDS = {
+          "dkmetcalf":            4047646,
+          "jamescook":            4430807,
+          "treveyonhenderson":    4567048,
+        };
+        Object.entries(PLAYER_IDS).forEach(([key, id]) => {
+          map[key] = `https://a.espncdn.com/i/headshots/nfl/players/full/${id}.png`;
         });
 
         const add = (firstName, lastName, fullName, obj) => {
@@ -1022,6 +1116,100 @@ export default function App() {
         }
 
         setHeadshotMap(map);
+
+        // ── Wikipedia thumbnails for legends ──────────────────────────────
+        const LEGEND_WIKI = {
+          // QB legends
+          "kurt warner":"Kurt Warner","bart starr":"Bart Starr","brett favre":"Brett Favre",
+          "joe montana":"Joe Montana","steve young":"Steve Young","terry bradshaw":"Terry Bradshaw",
+          "roger staubach":"Roger Staubach","troy aikman":"Troy Aikman","dan marino":"Dan Marino",
+          "peyton manning":"Peyton Manning","tom brady":"Tom Brady","john elway":"John Elway",
+          "jim kelly":"Jim Kelly","johnny unitas":"Johnny Unitas","len dawson":"Len Dawson",
+          "fran tarkenton":"Fran Tarkenton","bob griese":"Bob Griese","archie manning":"Archie Manning",
+          "drew brees":"Drew Brees","joe namath":"Joe Namath","warren moon":"Warren Moon",
+          "steve mcnair":"Steve McNair","boomer esiason":"Boomer Esiason","ken anderson":"Ken Anderson",
+          "mark brunell":"Mark Brunell","dan fouts":"Dan Fouts","ken stabler":"Ken Stabler",
+          "sammy baugh":"Sammy Baugh","otto graham":"Otto Graham","sid luckman":"Sid Luckman",
+          "bobby layne":"Bobby Layne","eli manning":"Eli Manning","donovan mcnabb":"Donovan McNabb",
+          "michael vick":"Michael Vick","jake delhomme":"Jake Delhomme","cam ward":"Cam Ward",
+          "jayden daniels":"Jayden Daniels","lamar jackson":"Lamar Jackson",
+          // RB legends
+          "barry sanders":"Barry Sanders","walter payton":"Walter Payton","jim brown":"Jim Brown",
+          "emmitt smith":"Emmitt Smith","eric dickerson":"Eric Dickerson","marshall faulk":"Marshall Faulk",
+          "ladainian tomlinson":"LaDainian Tomlinson","earl campbell":"Earl Campbell",
+          "terrell davis":"Terrell Davis","franco harris":"Franco Harris","jerome bettis":"Jerome Bettis",
+          "thurman thomas":"Thurman Thomas","o.j. simpson":"O. J. Simpson",
+          "gale sayers":"Gale Sayers","larry csonka":"Larry Csonka","marcus allen":"Marcus Allen",
+          "bo jackson":"Bo Jackson","edgerrin james":"Edgerrin James","adrianpeterson":"Adrian Peterson",
+          "adrian peterson":"Adrian Peterson","marshawn lynch":"Marshawn Lynch",
+          "tiki barber":"Tiki Barber","deuce mcallister":"Deuce McAllister",
+          "roger craig":"Roger Craig","curtis martin":"Curtis Martin","fred taylor":"Fred Taylor",
+          "priest holmes":"Priest Holmes","floyd little":"Floyd Little","leroy kelly":"Leroy Kelly",
+          "tony dorsett":"Tony Dorsett","paul hornung":"Paul Hornung","mike alstott":"Mike Alstott",
+          "shaun alexander":"Shaun Alexander","eddie george":"Eddie George","arian foster":"Arian Foster",
+          "frank gifford":"Frank Gifford","chuck foreman":"Chuck Foreman",
+          // WR legends
+          "jerry rice":"Jerry Rice","larry fitzgerald":"Larry Fitzgerald","randy moss":"Randy Moss",
+          "julio jones":"Julio Jones","michael irvin":"Michael Irvin","cris carter":"Cris Carter",
+          "don hutson":"Don Hutson","lynn swann":"Lynn Swann","john stallworth":"John Stallworth",
+          "hines ward":"Hines Ward","andre reed":"Andre Reed","sterling sharpe":"Sterling Sharpe",
+          "paul hornung":"Paul Hornung","lance alworth":"Lance Alworth","isaac bruce":"Isaac Bruce",
+          "torry holt":"Torry Holt","tim brown":"Tim Brown","fred biletnikoff":"Fred Biletnikoff",
+          "paul warfield":"Paul Warfield","charley taylor":"Charley Taylor","art monk":"Art Monk",
+          "don maynard":"Don Maynard","harold carmichael":"Harold Carmichael",
+          "chad johnson":"Chad Johnson","cris collinsworth":"Cris Collinsworth",
+          "steve smith sr.":"Steve Smith Sr.","jimmy smith":"Jimmy Smith",
+          "andre johnson":"Andre Johnson","steve largent":"Steve Largent",
+          // TE legends
+          "rob gronkowski":"Rob Gronkowski","tony gonzalez":"Tony Gonzalez",
+          "shannon sharpe":"Shannon Sharpe","kellen winslow":"Kellen Winslow Sr.",
+          "ozzie newsome":"Ozzie Newsome","antonio gates":"Antonio Gates",
+          "george kittle":"George Kittle","travis kelce":"Travis Kelce",
+          "mike ditka":"Mike Ditka",
+          // HC legends
+          "vince lombardi":"Vince Lombardi","bill belichick":"Bill Belichick",
+          "don shula":"Don Shula","joe gibbs":"Joe Gibbs (American football)",
+          "bill parcells":"Bill Parcells","jimmy johnson":"Jimmy Johnson (American football coach)",
+          "tom landry":"Tom Landry","chuck noll":"Chuck Noll","bill walsh":"Bill Walsh (American football coach)",
+          "paul brown":"Paul Brown (American football)","john madden":"John Madden",
+          "george halas":"George Halas","marv levy":"Marv Levy","mike tomlin":"Mike Tomlin",
+          "tony dungy":"Tony Dungy","andy reid":"Andy Reid","sean payton":"Sean Payton",
+          "pete carroll":"Pete Carroll","mike shanahan":"Mike Shanahan",
+          "bud grant":"Bud Grant","george allen":"George Allen (American football)",
+          "hank stram":"Hank Stram","bruce arians":"Bruce Arians",
+          "jim harbaugh":"Jim Harbaugh","dan campbell":"Dan Campbell (American football coach)",
+          "kyle shanahan":"Kyle Shanahan","mike mccarthy":"Mike McCarthy (American football)",
+          "mike vrabel":"Mike Vrabel","kevin stefanski":"Kevin Stefanski",
+        };
+
+        const wikiNames = Object.values(LEGEND_WIKI);
+        const chunkSize = 40;
+        const chunks = [];
+        for (let i = 0; i < wikiNames.length; i += chunkSize) {
+          chunks.push(wikiNames.slice(i, i + chunkSize));
+        }
+
+        Promise.all(chunks.map(chunk => {
+          const titles = chunk.map(n => encodeURIComponent(n)).join('|');
+          return fetch(`https://en.wikipedia.org/w/api.php?action=query&titles=${titles}&prop=pageimages&format=json&pithumbsize=200&origin=*`)
+            .then(r => r.json()).catch(() => null);
+        })).then(results => {
+          setHeadshotMap(prev => {
+            const updated = {...prev};
+            results.forEach(data => {
+              if (!data) return;
+              Object.values(data.query?.pages || {}).forEach(page => {
+                if (!page.thumbnail?.source) return;
+                const title = page.title;
+                // find which legend key maps to this title
+                const key = Object.entries(LEGEND_WIKI).find(([k, v]) => v === title)?.[0];
+                if (key) updated[key.replace(/[^a-z0-9]/g,'')] = page.thumbnail.source;
+              });
+            });
+            return updated;
+          });
+        });
+        // ─────────────────────────────────────────────────────────────────
       });
   }, []);
 
@@ -1098,6 +1286,133 @@ export default function App() {
 
 
 
+
+  // ── firebase room subscription ───────────────────────────────────────────
+  useEffect(() => {
+    if (!roomCode || (phase !== "online-game" && phase !== "online-waiting")) return;
+    const unsub = subscribeRoom(roomCode, data => {
+      if (!data) return;
+      setRoomData(data);
+      // auto-advance to results when all done
+      if (data.status === "complete") {
+        SFX.victory();
+        setPhase("online-results");
+      }
+      // move from waiting to game when host starts
+      if (phase === "online-waiting" && data.status === "active") {
+        setPhase("online-game");
+      }
+    });
+    return unsub;
+  }, [roomCode, phase]);
+
+  // ── online spin ──────────────────────────────────────────────────────────
+  const onlineSpin = () => {
+    if (spinning || !roomCode || !myPid) return;
+    const room = roomData;
+    if (!room) return;
+    // draft mode: only spin on your turn
+    if (room.mode === "draft" && room.turn !== myPid) return;
+    // check my slots not all filled
+    const myRoster = room.players?.[myPid]?.roster || {};
+    if (Object.values(myRoster).every(v => v !== null)) return;
+    SFX.click();
+    const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
+    setSpinTarget(target);
+    setSpinning(true);
+    SFX.startSpin();
+    writeSpin(roomCode, myPid, target.id);
+  };
+
+  const onlineHandleSpinEnd = () => {
+    SFX.stopSpin();
+    setSpinning(false);
+    setLanded(spinTarget);
+    if (spinTarget && (spinTarget.id === "JAX" || spinTarget.id === "TEN")) {
+      SFX.fart();
+    } else {
+      SFX.land(true);
+    }
+  };
+
+  const onlineReSpin = () => {
+    if (spinning || !roomCode || !myPid) return;
+    const myPlayer = roomData?.players?.[myPid];
+    if (!myPlayer || myPlayer.reSpinUsed) return;
+    SFX.respin();
+    writeReSpin(roomCode, myPid);
+    setLanded(null);
+    const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
+    setSpinTarget(target);
+    setSpinning(true);
+    SFX.startSpin();
+    writeSpin(roomCode, myPid, target.id);
+  };
+
+  // ── online pick ──────────────────────────────────────────────────────────
+  const onlinePick = async (slot, player, isLegend) => {
+    if (!roomCode || !myPid || !roomData) return;
+    const claimed = roomData.claimed || {};
+    if (!isLegend) {
+      const claimKey = `${slot}_${player.n}`.replace(/[^a-zA-Z0-9_]/g, "_");
+      if (claimed[claimKey]) return; // already taken
+    }
+    if (isLegend) SFX.legend(); else SFX.pick();
+    setModal(null);
+    setLanded(null);
+    const players = roomData.players || {};
+    const maxPlayers = roomData.maxPlayers || 2;
+    await writePick(roomCode, myPid, slot, player, isLegend, players, roomData.mode, roomData.turn, roomData.snakeDir || 1, maxPlayers);
+    // check if all players are done — mark complete
+    const myUpdatedRoster = { ...(players[myPid]?.roster || {}), [slot]: player };
+    const myDone = Object.values(myUpdatedRoster).every(v => v !== null);
+    const allDone = Object.entries(players).every(([pid, p]) => {
+      if (pid === myPid) return myDone;
+      return p.done;
+    });
+    if (allDone) {
+      const { update: fbUpdate } = await import("firebase/database");
+      const { getDatabase, ref } = await import("firebase/database");
+      const db = getDatabase();
+      await fbUpdate(ref(db, `rooms/${roomCode}`), { status: "complete" });
+    }
+  };
+
+  // ── create online room ───────────────────────────────────────────────────
+  const handleCreateRoom = async () => {
+    if (!lobbyName.trim()) { setOnlineError("Enter your name"); return; }
+    setOnlineError("");
+    const code = genCode();
+    try {
+      await createRoom(code, lobbyName.trim(), gameMode, onlineNumPlayers);
+      setRoomCode(code);
+      setMyPid("p0");
+      setIsHost(true);
+      setPhase("online-waiting");
+    } catch (e) {
+      setOnlineError(e.message);
+    }
+  };
+
+  // ── join online room ─────────────────────────────────────────────────────
+  const handleJoinRoom = async () => {
+    if (!lobbyName.trim()) { setOnlineError("Enter your name"); return; }
+    if (!roomCodeInput.trim()) { setOnlineError("Enter room code"); return; }
+    setOnlineError("");
+    const code = roomCodeInput.trim().toUpperCase();
+    try {
+      const pid = await joinRoom(code, lobbyName.trim());
+      setRoomCode(code);
+      setMyPid(pid);
+      setIsHost(false);
+      // subscribe and wait for start
+      setPhase("online-waiting");
+      setRoomCode(code);
+    } catch (e) {
+      setOnlineError(e.message);
+    }
+  };
+
   // ── spin ──
   const spin = () => {
     if (spinning || landed) return;
@@ -1163,6 +1478,180 @@ export default function App() {
     setPidx(next); setLanded(null);
   };
 
+  // ── MAIN MENU ──
+  if (phase==="menu" || (phase==="setup" && gameMode===null)) return (
+    <div style={S.root}>
+      <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+      <MuteBtn muted={muted} setMuted={setMuted}/>
+      <div style={S.setup}>
+        <div style={S.badge}>🏈 NFL LEGEND DRAFT</div>
+        <h1 style={S.title}>WHEEL OF<br/><span style={S.accent}>DESTINY</span></h1>
+        <p style={S.sub}>Spin for teams. Draft legends. Build the ultimate franchise.</p>
+        <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:8}}>
+
+          <div style={{...S.card,padding:"16px 20px"}}>
+            <div style={{...S.fLabel,marginBottom:12}}>OFFLINE</div>
+            <div style={{display:"flex",gap:10}}>
+              <button style={{...S.bigBtn,flex:1,fontSize:13,padding:"12px 8px"}} onClick={()=>{setGameMode("solo");setNumP(1);setPhase("setup");}}>
+                👤 SOLO
+              </button>
+              <button style={{...S.bigBtn,flex:1,fontSize:13,padding:"12px 8px"}} onClick={()=>{setGameMode("local");setPhase("setup");}}>
+                🛋️ LOCAL
+              </button>
+            </div>
+          </div>
+
+          <div style={{...S.card,padding:"16px 20px"}}>
+            <div style={{...S.fLabel,marginBottom:4}}>ONLINE MULTIPLAYER</div>
+            <div style={{fontSize:12,color:"#444",marginBottom:12}}>Play with friends from anywhere</div>
+            <div style={{display:"flex",gap:10}}>
+              <button style={{...S.bigBtn,flex:1,fontSize:12,padding:"12px 8px",background:"#0a1a2a",borderColor:"#1a3a5a"}} onClick={()=>{setGameMode("draft");setPhase("online-lobby");}}>
+                📋 DRAFT BATTLE<br/><span style={{fontSize:10,opacity:0.6,fontWeight:400}}>Alternating turns</span>
+              </button>
+              <button style={{...S.bigBtn,flex:1,fontSize:12,padding:"12px 8px",background:"#1a0a0a",borderColor:"#5a1a1a"}} onClick={()=>{setGameMode("blitz");setPhase("online-lobby");}}>
+                ⚡ BLITZ<br/><span style={{fontSize:10,opacity:0.6,fontWeight:400}}>Simultaneous draft</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <div style={{marginTop:16}}>
+          <button style={{...S.bigBtn,background:"#0d0d0d",border:"1px solid #2a2a2a",color:"#FFD700",letterSpacing:2}}
+            onClick={()=>{if(!lbLoaded)loadLeaderboard();setShowLb(v=>!v);}}>
+            {showLb?"▲ HIDE LEADERBOARD":"🏅 ALL-TIME LEADERBOARD"}
+          </button>
+          {showLb&&(
+            <div style={{background:"#0d0d0d",border:"1px solid #1e1e1e",borderTop:"none",borderRadius:"0 0 8px 8px",overflow:"hidden"}}>
+              {!lbLoaded
+                ? <div style={{padding:20,textAlign:"center",color:"#444",fontSize:13}}>Loading…</div>
+                : leaderboard.length===0
+                  ? <div style={{padding:20,textAlign:"center",color:"#333",fontSize:13}}>No scores yet — you're first!</div>
+                  : leaderboard.map((entry,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:14,padding:"11px 18px",borderBottom:"1px solid #141414",background:i===0?"#110d00":"transparent"}}>
+                      <span style={{fontFamily:"'Oswald',sans-serif",fontSize:15,color:i===0?"#FFD700":i===1?"#aaa":i===2?"#cd7f32":"#333",width:24,textAlign:"center",fontWeight:700}}>
+                        {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+                      </span>
+                      <span style={{flex:1,fontSize:14,color:i===0?"#e8e8e8":"#777",fontWeight:i===0?600:400}}>{entry.name}</span>
+                      <span style={{fontFamily:"'Oswald',sans-serif",fontSize:17,color:i===0?"#FFD700":"#555",fontWeight:700}}>{entry.score}</span>
+                      <span style={{fontSize:11,color:"#2a2a2a",minWidth:60,textAlign:"right"}}>{entry.date}</span>
+                    </div>
+                  ))
+              }
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── ONLINE LOBBY ──
+  if (phase==="online-lobby") return (
+    <div style={S.root}>
+      <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+      <MuteBtn muted={muted} setMuted={setMuted}/>
+      <div style={S.setup}>
+        <button style={{background:"none",border:"none",color:"#555",cursor:"pointer",fontSize:13,marginBottom:16,letterSpacing:1}} onClick={()=>setPhase("menu")}>← BACK</button>
+        <div style={S.badge}>{gameMode==="draft"?"📋 DRAFT BATTLE":"⚡ BLITZ MODE"}</div>
+        <h2 style={{...S.title,fontSize:32,marginBottom:8}}>
+          {gameMode==="draft"?"DRAFT":"BLITZ"}<br/><span style={S.accent}>BATTLE</span>
+        </h2>
+        <p style={{...S.sub,fontSize:13}}>
+          {gameMode==="draft"
+            ? "Snake draft order — take turns spinning and picking. Rosters hidden until reveal."
+            : "Everyone drafts simultaneously — race to fill your roster. Rosters hidden until reveal."}
+        </p>
+
+        <div style={S.card}>
+          <div style={S.fLabel}>YOUR NAME</div>
+          <input style={S.inp} value={lobbyName} onChange={e=>setLobbyName(e.target.value)}
+            placeholder="Enter your name" maxLength={20}/>
+
+          <div style={{...S.fLabel,marginTop:16}}>NUMBER OF PLAYERS</div>
+          <div style={S.numRow}>
+            {[2,3,4].map(n=>(
+              <button key={n} onClick={()=>setOnlineNumPlayers(n)}
+                style={{...S.numBtn,...(onlineNumPlayers===n?S.numBtnOn:{})}}>
+                {n}
+              </button>
+            ))}
+          </div>
+
+          {onlineError && <div style={{color:"#E31837",fontSize:13,marginTop:8,textAlign:"center"}}>{onlineError}</div>}
+
+          <button style={{...S.bigBtn,marginTop:16}} onClick={handleCreateRoom}>
+            🏠 CREATE ROOM
+          </button>
+        </div>
+
+        <div style={{...S.card,marginTop:12}}>
+          <div style={S.fLabel}>JOIN EXISTING ROOM</div>
+          <input style={S.inp} value={lobbyName} onChange={e=>setLobbyName(e.target.value)}
+            placeholder="Your name" maxLength={20}/>
+          <input style={{...S.inp,marginTop:8,letterSpacing:3,textTransform:"uppercase"}}
+            value={roomCodeInput} onChange={e=>setRoomCodeInput(e.target.value.toUpperCase())}
+            placeholder="ROOM CODE" maxLength={6}/>
+          <button style={{...S.bigBtn,marginTop:12,background:"#0a1a0a",borderColor:"#1a3a1a"}} onClick={handleJoinRoom}>
+            🚪 JOIN ROOM
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── ONLINE WAITING ROOM ──
+  if (phase==="online-waiting") {
+    const waitRoom = roomData;
+    const playerList = waitRoom ? Object.values(waitRoom.players || {}) : [];
+    const maxP = waitRoom?.maxPlayers || onlineNumPlayers;
+    const canStart = isHost && playerList.length >= 2;
+    return (
+      <div style={S.root}>
+        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+        <MuteBtn muted={muted} setMuted={setMuted}/>
+        <div style={S.setup}>
+          <div style={S.badge}>🎮 WAITING ROOM</div>
+          <h2 style={{...S.title,fontSize:28}}>ROOM<br/><span style={S.accent}>{roomCode}</span></h2>
+          <p style={{...S.sub,fontSize:13,marginBottom:4}}>Share this code with friends</p>
+          <button onClick={()=>navigator.clipboard?.writeText(roomCode)}
+            style={{background:"#1a1a1a",border:"1px solid #333",color:"#FFD700",padding:"6px 16px",borderRadius:6,cursor:"pointer",fontSize:12,letterSpacing:2,marginBottom:24}}>
+            📋 COPY CODE
+          </button>
+
+          <div style={S.card}>
+            <div style={S.fLabel}>PLAYERS ({playerList.length}/{maxP})</div>
+            {playerList.map((p,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #1a1a1a"}}>
+                <span style={{width:28,height:28,borderRadius:"50%",background:i===0?"#FFD700":"#2a2a2a",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:i===0?"#000":"#888"}}>
+                  {i===0?"👑":`P${i+1}`}
+                </span>
+                <span style={{flex:1,fontSize:14,color:"#e8e8e8"}}>{p.name}</span>
+                <span style={{fontSize:11,color:"#444"}}>{i===0?"HOST":""}</span>
+              </div>
+            ))}
+            {playerList.length < maxP && (
+              <div style={{color:"#333",fontSize:12,padding:"10px 0",textAlign:"center"}}>
+                Waiting for {maxP - playerList.length} more player{maxP - playerList.length > 1 ? "s" : ""}...
+              </div>
+            )}
+          </div>
+
+          {isHost ? (
+            <button style={{...S.bigBtn,marginTop:16,opacity:canStart?1:0.4}} onClick={()=>canStart&&startGame(roomCode).then(()=>setPhase("online-game"))}
+              disabled={!canStart}>
+              {canStart ? "🚀 START GAME" : `Waiting for players… (${playerList.length}/${maxP})`}
+            </button>
+          ) : (
+            <div style={{textAlign:"center",color:"#555",fontSize:13,marginTop:16}}>Waiting for host to start…</div>
+          )}
+          <button style={{...S.bigBtn,marginTop:10,background:"none",border:"1px solid #2a2a2a",color:"#555",fontSize:12}} onClick={()=>{setPhase("menu");setRoomCode("");setRoomData(null);}}>
+            LEAVE ROOM
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── setup ──
   if (phase==="setup") return (
     <div style={S.root}>
@@ -1194,7 +1683,8 @@ export default function App() {
           {Array.from({length:numP},(_,i)=>(
             <div key={i} style={{marginBottom:14}}>
               <div style={S.fLabel}>PLAYER {i+1}</div>
-              <input style={S.inp} value={names[i]||`Player ${i+1}`}
+              <input style={S.inp} value={names[i]}
+                placeholder={`Player ${i+1}`}
                 onChange={e=>{const u=[...names];u[i]=e.target.value;setNames(u);}}
                 placeholder={`Player ${i+1} name`}/>
             </div>
@@ -1323,8 +1813,223 @@ export default function App() {
             )}
           </div>
 
-          <button style={S.bigBtn} onClick={()=>{setPhase("setup");setLanded(null);setSpinning(false);setShowLb(false);}}>PLAY AGAIN</button>
+          <button style={S.bigBtn} onClick={()=>{setPhase("menu");setGameMode(null);setLanded(null);setSpinning(false);setShowLb(false);setRoomCode("");setRoomData(null);setMyPid(null);}}>PLAY AGAIN</button>
         </div>
+      </div>
+    );
+  }
+
+
+  // ── ONLINE GAME ──
+  if (phase==="online-game" && roomData) {
+    const room = roomData;
+    const myPlayer = room.players?.[myPid] || {};
+    const myRoster = myPlayer.roster || {};
+    const myDone = Object.values(myRoster).every(v => v !== null);
+    const isMyTurn = room.mode === "blitz" || room.turn === myPid;
+    const canSpin = isMyTurn && !spinning && !landed && !myDone;
+    const allPlayers = Object.entries(room.players || {});
+    const teamLegends = landed ? (TEAM_LEGENDS[landed.id] || []) : [];
+    const myLegendTokens = myPlayer.legendTokens ?? 2;
+    const myReSpinUsed = myPlayer.reSpinUsed || false;
+    const claimed = room.claimed || {};
+    const myEmptySlots = SLOTS.filter(s => !myRoster[s.key]);
+
+    const isOnlineClaimed = (teamId, slot, playerName) => {
+      const claimKey = `${slot}_${playerName}`.replace(/[^a-zA-Z0-9_]/g, "_");
+      return !!claimed[claimKey];
+    };
+
+    return (
+      <div style={S.root}>
+        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+        <MuteBtn muted={muted} setMuted={setMuted}/>
+
+        {/* turn indicator / mode banner */}
+        <div style={{
+          background: isMyTurn ? "#0a1a0a" : "#0a0a0a",
+          borderBottom: `1px solid ${isMyTurn?"#1a3a1a":"#1a1a1a"}`,
+          padding:"8px 16px", textAlign:"center"
+        }}>
+          {room.mode === "draft" ? (
+            isMyTurn
+              ? <span style={{color:"#4a9a4a",fontSize:12,fontWeight:600,letterSpacing:1}}>✓ YOUR TURN</span>
+              : <span style={{color:"#555",fontSize:12,letterSpacing:1}}>
+                  Waiting for <span style={{color:"#e8e8e8"}}>{room.players?.[room.turn]?.name || "..."}</span> to pick…
+                </span>
+          ) : (
+            <span style={{color:"#4a7a9a",fontSize:12,fontWeight:600,letterSpacing:1}}>
+              ⚡ BLITZ — All players drafting simultaneously
+            </span>
+          )}
+        </div>
+
+        {/* opponent progress (blitz only - shows slot count, not players) */}
+        {room.mode === "blitz" && (
+          <div style={{display:"flex",gap:8,padding:"8px 16px",borderBottom:"1px solid #141414",overflowX:"auto"}}>
+            {allPlayers.map(([pid, p]) => {
+              const filled = Object.values(p.roster || {}).filter(v=>v!==null).length;
+              return (
+                <div key={pid} style={{
+                  flex:1,minWidth:80,background:"#111",borderRadius:8,padding:"8px 10px",
+                  border:`1px solid ${pid===myPid?"#2a3a2a":"#1a1a1a"}`,textAlign:"center"
+                }}>
+                  <div style={{fontSize:11,color:pid===myPid?"#4a9a4a":"#555",marginBottom:4,letterSpacing:1}}>
+                    {pid===myPid?"YOU":p.name}
+                  </div>
+                  <div style={{fontFamily:"'Oswald',sans-serif",fontSize:18,color:pid===myPid?"#e8e8e8":"#444"}}>
+                    {filled}<span style={{fontSize:11,color:"#333"}}>/8</span>
+                  </div>
+                  <div style={{display:"flex",gap:2,justifyContent:"center",marginTop:4}}>
+                    {SLOTS.map(sl=>(
+                      <div key={sl.key} style={{
+                        width:5,height:5,borderRadius:"50%",
+                        background:(p.roster?.[sl.key])?`${pid===myPid?"#4a9a4a":"#3a3a3a"}`:"#1a1a1a"
+                      }}/>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{padding:"16px 16px 0"}}>
+          {/* my roster slots */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+            {SLOTS.map(sl=>{
+              const fill = myRoster[sl.key];
+              return (
+                <div key={sl.key} style={{
+                  background:"#111",border:`1px solid ${fill?"#2a3a2a":"#1a1a1a"}`,
+                  borderRadius:8,padding:"8px 10px",display:"flex",alignItems:"center",gap:8,minHeight:48
+                }}>
+                  <span style={{fontFamily:"'Oswald',sans-serif",fontSize:10,color:"#333",width:28,textAlign:"right",letterSpacing:1,flexShrink:0}}>{sl.key}</span>
+                  {fill ? (
+                    <>
+                      <PlayerHeadshot name={fill.n} isLegend={fill.isLegend} headshotMap={headshotMap} size={28}/>
+                      <span style={{fontSize:12,color:fill.isLegend?"#FFD700":"#ccc",flex:1,lineHeight:1.2}}>{fill.n}</span>
+                      <span style={{fontFamily:"'Oswald',sans-serif",fontSize:11,color:fill.isLegend?"#FFD700":"#3a9a3a",flexShrink:0}}>{fill.r}</span>
+                    </>
+                  ) : (
+                    <span style={{fontSize:11,color:"#2a2a2a",flex:1}}>Empty</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* logo flasher */}
+          {!myDone && (
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12,marginBottom:16}}>
+              <LogoFlasher spinning={spinning} targetTeam={spinTarget||TEAMS[0]} onSpinEnd={onlineHandleSpinEnd} onTick={SFX.spinTick}/>
+              {canSpin && !landed && (
+                <button style={S.bigBtn} onClick={onlineSpin}>🎰 SPIN</button>
+              )}
+              {!isMyTurn && !myDone && room.mode==="draft" && (
+                <div style={{color:"#444",fontSize:13,textAlign:"center"}}>Wait for your turn…</div>
+              )}
+              {landed && (
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontFamily:"'Oswald',sans-serif",color:"#e8e8e8",fontSize:16,marginBottom:4}}>
+                    {landed.city} {landed.name}
+                  </div>
+                  <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                    {myEmptySlots.map(sl=>(
+                      <button key={sl.key} style={{...S.slotBtn}} onClick={()=>setModal({type:"pick",slot:sl.key})}>
+                        {sl.label}
+                      </button>
+                    ))}
+                    {myLegendTokens>0 && myEmptySlots.length>0 && (
+                      <button style={{...S.slotBtn,borderColor:"#4a3000",color:"#FFD700"}}
+                        onClick={()=>setModal({type:"legend",slot:myEmptySlots[0].key})}>
+                        ⭐ LEGEND ({myLegendTokens})
+                      </button>
+                    )}
+                    {!myReSpinUsed && (
+                      <button style={{...S.slotBtn,borderColor:"#2a2a4a",color:"#8888cc"}} onClick={onlineReSpin}>
+                        🔄 RE-SPIN
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {myDone && (
+            <div style={{textAlign:"center",padding:20,background:"#0a1a0a",borderRadius:12,border:"1px solid #1a3a1a",marginBottom:16}}>
+              <div style={{fontSize:24,marginBottom:8}}>✅</div>
+              <div style={{color:"#4a9a4a",fontFamily:"'Oswald',sans-serif",fontSize:16,letterSpacing:1}}>YOUR ROSTER IS COMPLETE</div>
+              <div style={{color:"#555",fontSize:12,marginTop:4}}>Waiting for other players…</div>
+            </div>
+          )}
+        </div>
+
+        {/* pick modal */}
+        {modal&&(
+          <div style={S.overlay} onClick={()=>setModal(null)}>
+            <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+              {modal.type==="pick"&&landed&&(()=>{
+                const rosterKey=SLOTS.find(s=>s.key===modal.slot)?.rosterKey;
+                const allOpts=(ROSTERS[landed.id]?.[rosterKey])||[];
+                const available = allOpts.filter(p=>!isOnlineClaimed(landed.id, modal.slot, p.n));
+                const taken = allOpts.filter(p=>isOnlineClaimed(landed.id, modal.slot, p.n));
+                return (
+                  <>
+                    <div style={{...S.mHead,background:landed.p,color:landed.s}}>
+                      {landed.city} {landed.name}
+                      <div style={S.mSub}>Picking: {SLOTS.find(s=>s.key===modal.slot)?.label}</div>
+                    </div>
+                    <div style={S.mList}>
+                      {available.map((p,i)=>(
+                        <button key={i} style={{...S.opt,gap:10}} onClick={()=>onlinePick(modal.slot,p,false)}>
+                          <PlayerHeadshot name={p.n} size={36} headshotMap={headshotMap}/>
+                          <span style={{fontSize:15,fontWeight:500,flex:1,textAlign:"left"}}>{p.n}</span>
+                          <RatingBar r={p.r}/>
+                        </button>
+                      ))}
+                      {taken.map((p,i)=>(
+                        <div key={"t"+i} style={{...S.opt,opacity:0.35,cursor:"not-allowed",pointerEvents:"none"}}>
+                          <span style={{fontSize:15,fontWeight:500,flex:1,textAlign:"left",textDecoration:"line-through",color:"#555"}}>{p.n}</span>
+                          <span style={{fontSize:11,color:"#444",marginLeft:8}}>DRAFTED</span>
+                        </div>
+                      ))}
+                      {available.length===0&&<div style={{color:"#555",padding:16,textAlign:"center"}}>All players from this position have been drafted.</div>}
+                    </div>
+                  </>
+                );
+              })()}
+              {modal.type==="legend"&&landed&&(()=>{
+                const slotLegends=teamLegends.filter(lg=>lg.pos.includes(modal.slot)&&(modal.slot!=="DEF"||(lg.n.includes("Defense")||/^\d{4}/.test(lg.n)||lg.n.includes("Legion")||lg.n.includes("Curtain")||lg.n.includes("People")||lg.n.includes("Doomsday")||lg.n.includes("No-Name")||lg.n.includes("Tampa 2")||lg.n.includes("Boom"))));
+                return (
+                  <>
+                    <div style={{...S.mHead,background:"#1a1400",color:"#FFD700",border:"1px solid #4a3800"}}>
+                      ⭐ {landed.city} {landed.name} Legends
+                      <div style={{...S.mSub,color:"#9a7a00"}}>
+                        {SLOTS.find(s=>s.key===modal.slot)?.label} · Uses 1 token ({myLegendTokens} remaining)
+                      </div>
+                    </div>
+                    <div style={S.mList}>
+                      {slotLegends.map((p,i)=>(
+                        <button key={i} style={{...S.opt,borderColor:"#2a2000",gap:10}} onClick={()=>onlinePick(modal.slot,p,true)}>
+                          <PlayerHeadshot name={p.n} size={36} isLegend={true} headshotMap={headshotMap}/>
+                          <div style={{flex:1,textAlign:"left"}}>
+                            <div style={{fontSize:15,fontWeight:600,color:"#FFD700"}}>{p.n}</div>
+                            <div style={{fontSize:11,color:"#666",marginTop:2}}>{p.era} · {p.note}</div>
+                          </div>
+                          <RatingBar r={p.r} gold/>
+                        </button>
+                      ))}
+                      {slotLegends.length===0&&<div style={{color:"#555",padding:16}}>No legends for this position.</div>}
+                    </div>
+                  </>
+                );
+              })()}
+              <button style={S.closeBtn} onClick={()=>setModal(null)}>✕ CANCEL</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1463,7 +2168,8 @@ export default function App() {
                   </div>
                   <div style={S.mList}>
                     {available.map((p,i)=>(
-                      <button key={i} style={S.opt} onClick={()=>pick(modal.slot,p,false)}>
+                      <button key={i} style={{...S.opt,gap:10}} onClick={()=>pick(modal.slot,p,false)}>
+                        <PlayerHeadshot name={p.n} size={36} headshotMap={headshotMap}/>
                         <span style={{fontSize:15,fontWeight:500,flex:1,textAlign:"left"}}>{p.n}</span>
                         <RatingBar r={p.r}/>
                       </button>
@@ -1509,7 +2215,8 @@ export default function App() {
                   </div>
                   <div style={S.mList}>
                     {slotLegends.map((p,i)=>(
-                      <button key={i} style={{...S.opt,borderColor:"#2a2000"}} onClick={()=>pick(modal.slot,p,true)}>
+                      <button key={i} style={{...S.opt,borderColor:"#2a2000",gap:10}} onClick={()=>pick(modal.slot,p,true)}>
+                        <PlayerHeadshot name={p.n} size={36} isLegend={true} headshotMap={headshotMap}/>
                         <div style={{flex:1,textAlign:"left"}}>
                           <div style={{fontSize:15,fontWeight:600,color:"#FFD700"}}>{p.n}</div>
                           <div style={{fontSize:11,color:"#666",marginTop:2}}>{p.era} · {p.note}</div>
@@ -1528,7 +2235,84 @@ export default function App() {
       )}
     </div>
   );
+
+  // ── ONLINE RESULTS ──
+  if (phase==="online-results" && roomData) {
+    const players = roomData.players || {};
+    const scored = Object.entries(players).map(([pid, p]) => ({
+      pid, name: p.name,
+      score: SLOTS.reduce((s, sl) => {
+        const pk = p.roster?.[sl.key];
+        return pk ? s + pk.r * sl.weight : s;
+      }, 0),
+      roster: p.roster || {}
+    })).sort((a,b) => b.score - a.score);
+
+    return (
+      <div style={S.root}>
+        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+        <MuteBtn muted={muted} setMuted={setMuted}/>
+        <div style={{maxWidth:600,margin:"0 auto",padding:"20px 16px"}}>
+          <div style={{textAlign:"center",marginBottom:24}}>
+            <div style={{fontSize:40,marginBottom:8}}>🏆</div>
+            <h2 style={{fontFamily:"'Oswald',sans-serif",fontSize:28,color:"#FFD700",letterSpacing:2,margin:0}}>
+              {scored[0]?.name} WINS!
+            </h2>
+            <div style={{color:"#555",fontSize:13,marginTop:4}}>
+              Score: <span style={{color:"#FFD700",fontWeight:700}}>{scored[0]?.score.toFixed(1)}</span>
+            </div>
+          </div>
+
+          {scored.map((p, rank) => (
+            <div key={p.pid} style={{
+              background: rank===0?"#110d00":"#0d0d0d",
+              border: `1px solid ${rank===0?"#3a2800":"#1a1a1a"}`,
+              borderRadius:12, marginBottom:16, overflow:"hidden"
+            }}>
+              <div style={{
+                background: rank===0?"#1a1000":"#111",
+                padding:"12px 16px",
+                display:"flex",alignItems:"center",gap:12,
+                borderBottom:`1px solid ${rank===0?"#2a1800":"#1a1a1a"}`
+              }}>
+                <span style={{fontSize:22}}>{rank===0?"🥇":rank===1?"🥈":"🥉"}</span>
+                <span style={{fontFamily:"'Oswald',sans-serif",fontSize:18,color:rank===0?"#FFD700":"#aaa",flex:1}}>{p.name}</span>
+                <span style={{fontFamily:"'Oswald',sans-serif",fontSize:22,color:rank===0?"#FFD700":"#555",fontWeight:700}}>{p.score.toFixed(1)}</span>
+              </div>
+              <div style={{padding:"12px 16px"}}>
+                {SLOTS.map(sl => {
+                  const fill = p.roster[sl.key];
+                  return (
+                    <div key={sl.key} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:"1px solid #141414"}}>
+                      <span style={{fontFamily:"'Oswald',sans-serif",fontSize:10,color:"#333",width:36,textAlign:"right",letterSpacing:1}}>{sl.key}</span>
+                      {fill ? (
+                        <>
+                          <PlayerHeadshot name={fill.n} isLegend={fill.isLegend} headshotMap={headshotMap} size={32}/>
+                          {fill.isLegend&&<span style={{fontSize:10}}>⭐</span>}
+                          <span style={{fontSize:13,color:fill.isLegend?"#FFD700":"#e8e8e8",flex:1}}>{fill.n}</span>
+                          <span style={{fontFamily:"'Oswald',sans-serif",fontSize:12,color:fill.isLegend?"#FFD700":"#3a9a3a"}}>{fill.r}</span>
+                        </>
+                      ) : <span style={{color:"#333",fontSize:12}}>—</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          <button style={{...S.bigBtn,marginTop:8}} onClick={()=>{
+            cleanupRoom(roomCode);
+            setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
+            setLanded(null);setSpinning(false);
+          }}>
+            PLAY AGAIN
+          </button>
+        </div>
+      </div>
+    );
+  }
 }
+
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = {
