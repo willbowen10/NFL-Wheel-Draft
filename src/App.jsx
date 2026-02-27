@@ -1887,19 +1887,182 @@ export default function App() {
   }
 
 
-  // ── ONLINE GAME ──
-  if (phase==="online-game" && roomData) {
+  // ── ONLINE GAME + RESULTS ──
+  if (phase==="online-game" || phase==="online-waiting" || phase==="online-results") {
     const room = roomData;
+    if (!room) return (
+      <div style={S.root}>
+        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+        <div style={{padding:60,textAlign:"center",color:"#555"}}>Connecting…</div>
+      </div>
+    );
+
+    // ── detect completion from raw roster data ──────────────────────────────
+    const SLOT_KEYS = ["QB","RB","WR1","WR2","WR3","TE","DEF","HC"];
+    const isObj = v => v && typeof v === "object";
+    const isRosterDone = r => SLOT_KEYS.filter(k => isObj(r?.[k])).length === 8;
+    const allPids = Object.keys(room.players || {});
+    const allDraftComplete = allPids.length > 0 && allPids.every(p => isRosterDone(room.players[p]?.roster));
+
+    // ── RESULTS VIEW ────────────────────────────────────────────────────────
+    if (allDraftComplete || phase === "online-results") {
+      const rPlayers = room.players || {};
+      const scored = Object.entries(rPlayers).map(([pid, p]) => ({
+        pid, name: p.name, isMe: pid === myPid,
+        score: SLOT_KEYS.reduce((s, k) => {
+          const sl = SLOTS.find(x => x.key === k);
+          const pk = p.roster?.[k];
+          return (isObj(pk) && sl) ? s + pk.r * sl.weight : s;
+        }, 0),
+        roster: p.roster || {}
+      })).sort((a,b) => b.score - a.score);
+      const winner = scored[0];
+      const iWon = winner?.pid === myPid;
+
+      return (
+        <div style={S.root}>
+          <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+          <MuteBtn muted={muted} setMuted={setMuted}/>
+          <div style={S.setup}>
+            <div style={S.badge}>🏆 FINAL STANDINGS</div>
+            <h1 style={S.title}>
+              <span style={{color: iWon ? "#4a9a4a" : "#E31837"}}>
+                {iWon ? "YOU WIN!" : winner?.name?.toUpperCase()}
+              </span><br/>
+              {iWon ? "WELL DRAFTED" : "WINS THE DRAFT"}
+            </h1>
+
+            {/* score comparison */}
+            <div style={{display:"flex",gap:12,marginBottom:24}}>
+              {scored.map((p, rank) => (
+                <div key={p.pid} style={{
+                  flex:1, background:rank===0?"#110d00":"#0d0d0d",
+                  border:`1px solid ${rank===0?"#3a2800":"#1a1a1a"}`,
+                  borderRadius:12, padding:"14px 16px", textAlign:"center"
+                }}>
+                  <div style={{fontSize:11,color:"#555",letterSpacing:2,marginBottom:6}}>
+                    {p.isMe?"YOU":p.name.toUpperCase()}
+                  </div>
+                  <div style={{fontFamily:"'Oswald',sans-serif",fontSize:40,fontWeight:700,color:rank===0?"#FFD700":"#555",lineHeight:1}}>
+                    {p.score.toFixed(1)}
+                  </div>
+                  <div style={{fontSize:12,color:rank===0?"#9a7a00":"#333",marginTop:6}}>
+                    {rank===0?"🥇 WINNER":"🥈"}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* side by side rosters */}
+            <div style={{display:"flex",gap:12,marginBottom:16}}>
+              {scored.map((p, rank) => (
+                <div key={p.pid} style={{...S.resCard,...(rank===0?S.resCardWin:{}),flex:1,marginBottom:0}}>
+                  <div style={S.resHead}>
+                    <span style={{fontSize:22}}>{rank===0?"🥇":"🥈"}</span>
+                    <span style={S.resName}>{p.isMe?"YOU":p.name}</span>
+                  </div>
+                  <div style={S.resGrid}>
+                    {SLOTS.map(sl => {
+                      const pick = p.roster[sl.key];
+                      const hasPick = isObj(pick);
+                      return (
+                        <div key={sl.key} style={S.resSlot}>
+                          <div style={S.resSlotLabel}>{sl.label} <span style={{color:"#333"}}>×{sl.weight}</span></div>
+                          {hasPick ? (
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <PlayerHeadshot name={pick.n} size={28} isLegend={pick.isLegend} headshotMap={headshotMap}/>
+                              {pick.isLegend&&<span style={{fontSize:10}}>⭐</span>}
+                              <span style={{fontSize:12,color:pick.isLegend?"#FFD700":"#ccc",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pick.n}</span>
+                              <span style={{fontFamily:"'Oswald',sans-serif",fontSize:11,color:pick.isLegend?"#FFD700":"#3a9a3a",flexShrink:0,marginLeft:4}}>{pick.r}</span>
+                            </div>
+                          ) : <span style={{color:"#444",fontSize:11}}>—</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{fontSize:12,color:"#333",textAlign:"center",margin:"4px 0 24px"}}>
+              QB ×1.5 · DEF ×1.3 · RB ×1.2 · HC ×1.15 · TE ×1.1 · WR ×1.0
+            </div>
+
+            <div style={{display:"flex",gap:10}}>
+              <button style={{...S.bigBtn,flex:1}} onClick={async ()=>{
+                await resetRoom(roomCode, room.players || {});
+                setLanded(null); setSpinning(false); setModal(null);
+              }}>🔄 PLAY AGAIN</button>
+              <button style={{...S.bigBtn,flex:"0 0 100px",background:"#1a1a1a",border:"1px solid #333",color:"#888"}} onClick={()=>{
+                cleanupRoom(roomCode);
+                setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
+                setLanded(null);setSpinning(false);
+              }}>EXIT</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── WAITING ROOM ─────────────────────────────────────────────────────────
+    if (phase === "online-waiting") {
+      const playerList = Object.values(room.players || {});
+      const maxP = room.maxPlayers || onlineNumPlayers;
+      const canStart = isHost && playerList.length >= 2;
+      return (
+        <div style={S.root}>
+          <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+          <MuteBtn muted={muted} setMuted={setMuted}/>
+          <div style={S.setup}>
+            <div style={S.badge}>🎮 WAITING ROOM</div>
+            <h2 style={{...S.title,fontSize:28}}>ROOM<br/><span style={S.accent}>{roomCode}</span></h2>
+            <p style={{...S.sub,fontSize:13,marginBottom:4}}>Share this code with friends</p>
+            <button onClick={()=>navigator.clipboard?.writeText(roomCode)}
+              style={{background:"#1a1a1a",border:"1px solid #333",color:"#FFD700",padding:"6px 16px",borderRadius:6,cursor:"pointer",fontSize:12,letterSpacing:2,marginBottom:24}}>
+              📋 COPY CODE
+            </button>
+            <div style={S.card}>
+              <div style={S.fLabel}>PLAYERS ({playerList.length}/{maxP})</div>
+              {playerList.map((p,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #1a1a1a"}}>
+                  <span style={{width:28,height:28,borderRadius:"50%",background:i===0?"#FFD700":"#2a2a2a",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:i===0?"#000":"#888"}}>
+                    {i===0?"👑":`P${i+1}`}
+                  </span>
+                  <span style={{flex:1,fontSize:14,color:"#e8e8e8"}}>{p.name}</span>
+                </div>
+              ))}
+              {playerList.length < maxP && (
+                <div style={{color:"#333",fontSize:12,padding:"10px 0",textAlign:"center"}}>
+                  Waiting for {maxP - playerList.length} more…
+                </div>
+              )}
+            </div>
+            {isHost ? (
+              <button style={{...S.bigBtn,marginTop:16,opacity:canStart?1:0.4}} onClick={()=>canStart&&startGame(roomCode)} disabled={!canStart}>
+                {canStart ? "🚀 START GAME" : `Waiting… (${playerList.length}/${maxP})`}
+              </button>
+            ) : (
+              <div style={{textAlign:"center",color:"#555",fontSize:13,marginTop:16}}>Waiting for host to start…</div>
+            )}
+            <button style={{...S.bigBtn,marginTop:10,background:"none",border:"1px solid #2a2a2a",color:"#555",fontSize:12}} onClick={()=>{setPhase("menu");setRoomCode("");setRoomData(null);}}>
+              LEAVE
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── DRAFT GAME VIEW ───────────────────────────────────────────────────────
     const myPlayer = room.players?.[myPid] || {};
     const myRoster = myPlayer.roster || {};
-    const myDone = Object.values(myRoster).filter(v => v && typeof v === "object").length === SLOTS.length;
+    const myDone = isRosterDone(myRoster);
     const isMyTurn = room.mode === "blitz" || room.turn === myPid;
     const canSpin = isMyTurn && !spinning && !landed && !myDone;
     const teamLegends = landed ? (TEAM_LEGENDS[landed.id] || []) : [];
     const myLegendTokens = myPlayer.legendTokens ?? 2;
     const myReSpinUsed = myPlayer.reSpinUsed || false;
     const claimed = room.claimed || {};
-    const myEmptySlots = SLOTS.filter(s => !myRoster[s.key] || typeof myRoster[s.key] !== "object");
+    const myEmptySlots = SLOTS.filter(s => !isObj(myRoster[s.key]));
 
     const isOnlineClaimed = (slot, playerName) => {
       const claimKey = `${slot}_${playerName}`.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -1911,36 +2074,22 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
         <MuteBtn muted={muted} setMuted={setMuted}/>
 
-        {/* debug overlay - remove after testing */}
-        <div style={{position:"fixed",bottom:8,left:8,zIndex:9999,background:"rgba(0,0,0,0.92)",border:"1px solid #444",borderRadius:6,padding:"8px 12px",fontSize:10,color:"#aaa",lineHeight:1.8}}>
-          <div>status: <b style={{color:"#FFD700"}}>{roomData?.status||"?"}</b></div>
-          <div>phase: <b style={{color:"#FFD700"}}>{phase}</b></div>
-          <div>myDone: <b style={{color:"#FFD700"}}>{String(myDone)}</b></div>
-          <div>filled: <b style={{color:"#FFD700"}}>{Object.values(myRoster).filter(v=>v&&typeof v==="object").length}/8</b></div>
-          <div>allDone: <b style={{color:"#FFD700"}}>{Object.values(room.players||{}).every(p=>p.done)?"YES":"NO"}</b></div>
-        </div>
-
-        {/* header — same as solo */}
-        <div style={S.hdr}>
-          <div style={{fontFamily:"'Oswald',sans-serif",fontSize:18,color:"#fff",letterSpacing:1}}>🏈 NFL WHEEL DRAFT</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            {room.mode === "draft"
-              ? isMyTurn
-                ? <div style={{...S.tab,...S.tabOn}}>Your Turn</div>
-                : <div style={S.tab}>Waiting for {room.players?.[room.turn]?.name||"..."}…</div>
-              : <div style={S.tab}>⚡ Blitz</div>
-            }
-          </div>
+        {/* slim status bar */}
+        <div style={{background:"#0d0d0d",borderBottom:"1px solid #1a1a1a",padding:"4px 16px",textAlign:"center",fontSize:11,letterSpacing:1}}>
+          {room.mode === "draft"
+            ? isMyTurn
+              ? <span style={{color:"#4a9a4a",fontWeight:600}}>✓ YOUR TURN</span>
+              : <span style={{color:"#555"}}>Waiting for <span style={{color:"#aaa"}}>{room.players?.[room.turn]?.name || "…"}</span></span>
+            : <span style={{color:"#4a7a9a",fontWeight:600}}>⚡ BLITZ</span>}
         </div>
 
         <div style={S.body}>
           {/* WHEEL */}
           <div style={S.wheelCol}>
             <div style={{fontFamily:"'Oswald',sans-serif",fontSize:20,color:"#fff",letterSpacing:1,marginBottom:8}}>
-              {myDone ? "Roster Complete!" : isMyTurn ? "Your Turn" : "Waiting…"}
+              {myDone ? "Waiting for others…" : "Your Turn"}
             </div>
 
-            {/* tokens */}
             <div style={{display:"flex",gap:16,marginBottom:12,fontSize:13}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
                 <span style={{color:"#555",letterSpacing:2,fontSize:10}}>LEGENDS</span>
@@ -1976,15 +2125,13 @@ export default function App() {
             )}
 
             {myDone && (
-              <div style={{textAlign:"center",padding:"20px 0"}}>
-                <div style={{fontSize:28,marginBottom:8}}>✅</div>
-                <div style={{color:"#4a9a4a",fontFamily:"'Oswald',sans-serif",fontSize:14,letterSpacing:1}}>ROSTER COMPLETE</div>
-                <div style={{color:"#444",fontSize:12,marginTop:4}}>Waiting for other players…</div>
+              <div style={{textAlign:"center",padding:"20px 0",color:"#4a9a4a",fontFamily:"'Oswald',sans-serif",fontSize:13,letterSpacing:1}}>
+                ✅ DONE — Waiting for others…
               </div>
             )}
           </div>
 
-          {/* ROSTER — identical to solo */}
+          {/* ROSTER */}
           <div style={S.rosterCol}>
             <div style={{fontFamily:"'Oswald',sans-serif",fontSize:17,color:"#fff",marginBottom:14,letterSpacing:1}}>
               Your Roster
@@ -1992,10 +2139,10 @@ export default function App() {
             <div style={{display:"flex",flexDirection:"column",gap:7}}>
               {SLOTS.map(sl=>{
                 const fill = myRoster[sl.key];
-                const isEmpty = !fill || typeof fill !== "object";
+                const isEmpty = !isObj(fill);
                 const canFill = landed && !spinning && isMyTurn && isEmpty;
                 const hasLegend = myLegendTokens > 0 && landed && isMyTurn && isEmpty &&
-                  teamLegends.some(lg => lg.pos.includes(sl.key) && (sl.key!=="DEF"||(lg.n.includes("Defense")||/^\d{4}/.test(lg.n)||lg.n.includes("Legion")||lg.n.includes("Curtain")||lg.n.includes("People")||lg.n.includes("Doomsday")||lg.n.includes("No-Name")||lg.n.includes("Tampa 2")||lg.n.includes("Boom"))));
+                  teamLegends.some(lg => lg.pos.includes(sl.key));
                 return (
                   <div key={sl.key} style={{...S.slotRow,...(!isEmpty?S.slotFilled:canFill?S.slotOpen:{})}}>
                     <div style={S.slotLeft}>
@@ -2052,22 +2199,22 @@ export default function App() {
                       ))}
                       {taken.map((p,i)=>(
                         <div key={"t"+i} style={{...S.opt,opacity:0.35,cursor:"not-allowed",pointerEvents:"none"}}>
-                          <span style={{fontSize:15,fontWeight:500,flex:1,textAlign:"left",textDecoration:"line-through",color:"#555"}}>{p.n}</span>
-                          <span style={{fontSize:11,color:"#444",marginLeft:8}}>DRAFTED</span>
+                          <span style={{fontSize:15,flex:1,textDecoration:"line-through",color:"#555"}}>{p.n}</span>
+                          <span style={{fontSize:11,color:"#444"}}>DRAFTED</span>
                         </div>
                       ))}
-                      {available.length===0&&<div style={{color:"#555",padding:16,textAlign:"center"}}>All players from this position have been drafted.</div>}
+                      {available.length===0&&<div style={{color:"#555",padding:16,textAlign:"center"}}>All players drafted.</div>}
                     </div>
                   </>
                 );
               })()}
               {modal.type==="legend"&&landed&&(()=>{
-                const slotLegends=teamLegends.filter(lg=>lg.pos.includes(modal.slot)&&(modal.slot!=="DEF"||(lg.n.includes("Defense")||/^\d{4}/.test(lg.n)||lg.n.includes("Legion")||lg.n.includes("Curtain")||lg.n.includes("People")||lg.n.includes("Doomsday")||lg.n.includes("No-Name")||lg.n.includes("Tampa 2")||lg.n.includes("Boom"))));
+                const slotLegends=teamLegends.filter(lg=>lg.pos.includes(modal.slot));
                 return (
                   <>
                     <div style={{...S.mHead,background:"#1a1400",color:"#FFD700",border:"1px solid #4a3800"}}>
                       ⭐ {landed.city} {landed.name} Legends
-                      <div style={{...S.mSub,color:"#9a7a00"}}>{SLOTS.find(s=>s.key===modal.slot)?.label} · Uses 1 token ({myLegendTokens} remaining)</div>
+                      <div style={{...S.mSub,color:"#9a7a00"}}>{SLOTS.find(s=>s.key===modal.slot)?.label} · {myLegendTokens} token{myLegendTokens!==1?"s":""} left</div>
                     </div>
                     <div style={S.mList}>
                       {slotLegends.map((p,i)=>(
@@ -2295,106 +2442,6 @@ export default function App() {
       )}
     </div>
   );
-
-  // ── ONLINE RESULTS ──
-  if (phase==="online-results") {
-    const resultData = finalRoomData || roomData;
-    if (!resultData) return <div style={S.root}><div style={{padding:60,textAlign:'center',color:'#555',fontSize:14}}>Loading results…</div></div>;
-    const rPlayers = resultData.players || {};
-    const scored = Object.entries(rPlayers).map(([pid, p]) => ({
-      pid, name: p.name, isMe: pid === myPid,
-      score: SLOTS.reduce((s, sl) => {
-        const pk = p.roster?.[sl.key];
-        return (pk && typeof pk === "object") ? s + pk.r * sl.weight : s;
-      }, 0),
-      roster: p.roster || {}
-    })).sort((a,b) => b.score - a.score);
-
-    const winner = scored[0];
-
-    return (
-      <div style={S.root}>
-        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
-        <MuteBtn muted={muted} setMuted={setMuted}/>
-        <div style={S.setup}>
-          <div style={S.badge}>🏆 FINAL STANDINGS</div>
-          <h1 style={S.title}>
-            <span style={{color:"#FFD700"}}>{winner?.name?.toUpperCase()}</span><br/>
-            WINS THE DRAFT
-          </h1>
-
-          {/* score comparison */}
-          <div style={{display:"flex",gap:12,marginBottom:24}}>
-            {scored.map((p, rank) => (
-              <div key={p.pid} style={{
-                flex:1, background:rank===0?"#110d00":"#0d0d0d",
-                border:`1px solid ${rank===0?"#3a2800":"#1a1a1a"}`,
-                borderRadius:12, padding:"14px 16px", textAlign:"center"
-              }}>
-                <div style={{fontSize:11,color:"#555",letterSpacing:2,marginBottom:6}}>
-                  {p.isMe?"YOU":p.name.toUpperCase()}
-                </div>
-                <div style={{fontFamily:"'Oswald',sans-serif",fontSize:40,fontWeight:700,color:"#FFD700",lineHeight:1}}>
-                  {p.score.toFixed(1)}
-                </div>
-                <div style={{fontSize:12,color:rank===0?"#9a7a00":"#333",marginTop:6}}>
-                  {rank===0?"🥇 WINNER":"🥈"}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* side by side rosters */}
-          <div style={{display:"flex",gap:12,marginBottom:16}}>
-            {scored.map((p, rank) => (
-              <div key={p.pid} style={{...S.resCard,...(rank===0?S.resCardWin:{}),flex:1,marginBottom:0}}>
-                <div style={S.resHead}>
-                  <span style={{fontSize:22}}>{rank===0?"🥇":"🥈"}</span>
-                  <span style={S.resName}>{p.isMe?"YOU":p.name}</span>
-                </div>
-                <div style={S.resGrid}>
-                  {SLOTS.map(sl => {
-                    const pick = p.roster[sl.key];
-                    const hasPick = pick && typeof pick === "object";
-                    return (
-                      <div key={sl.key} style={S.resSlot}>
-                        <div style={S.resSlotLabel}>{sl.label} <span style={{color:"#333"}}>×{sl.weight}</span></div>
-                        {hasPick ? (
-                          <div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <PlayerHeadshot name={pick.n} size={28} isLegend={pick.isLegend} headshotMap={headshotMap}/>
-                            {pick.isLegend&&<span style={{fontSize:10}}>⭐</span>}
-                            <span style={{fontSize:12,color:pick.isLegend?"#FFD700":"#ccc",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pick.n}</span>
-                            <span style={{fontFamily:"'Oswald',sans-serif",fontSize:11,color:pick.isLegend?"#FFD700":"#3a9a3a",flexShrink:0,marginLeft:4}}>{pick.r}</span>
-                          </div>
-                        ) : <span style={{color:"#444",fontSize:11}}>Empty</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{fontSize:12,color:"#333",textAlign:"center",margin:"4px 0 24px"}}>
-            QB ×1.5 · DEF ×1.3 · RB ×1.2 · HC ×1.15 · TE ×1.1 · WR ×1.0
-          </div>
-
-          <div style={{display:"flex",gap:10}}>
-            <button style={{...S.bigBtn,flex:1}} onClick={async ()=>{
-              await resetRoom(roomCode, roomData?.players || {});
-              setLanded(null); setSpinning(false); setModal(null);
-              setPhase("online-game");
-            }}>🔄 PLAY AGAIN</button>
-            <button style={{...S.bigBtn,flex:"0 0 100px",background:"#1a1a1a",border:"1px solid #333",color:"#888"}} onClick={()=>{
-              cleanupRoom(roomCode);
-              setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
-              setLanded(null);setSpinning(false);
-            }}>EXIT</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 }
 
 
