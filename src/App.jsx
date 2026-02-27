@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { createRoom, joinRoom, startGame, subscribeRoom, writeSpin, writePick, writeReSpin, cleanupRoom, resetRoom, genCode } from "./firebase";
+import { createRoom, joinRoom, startGame, subscribeRoom, writeSpin, writePick, writeReSpin, cleanupRoom, resetRoom, voteRematch, genCode } from "./firebase";
 
 // ─── NFL TEAMS ───────────────────────────────────────────────────────────────
 const TEAMS = [
@@ -1929,10 +1929,10 @@ export default function App() {
           <div style={S.setup}>
             <div style={S.badge}>🏆 FINAL STANDINGS</div>
             <h1 style={S.title}>
-              <span style={{color: iWon ? "#4a9a4a" : "#E31837"}}>
+              <span style={{color: iWon ? "#4a9a4a" : "#FFD700"}}>
                 {iWon ? "YOU WIN!" : winner?.name?.toUpperCase()}
               </span><br/>
-              {iWon ? "WELL DRAFTED" : "WINS THE DRAFT"}
+              <span style={{color:"#e8e8e8"}}>{iWon ? "WELL DRAFTED" : "WINS THE DRAFT"}</span>
             </h1>
 
             {/* score comparison */}
@@ -1991,17 +1991,30 @@ export default function App() {
               QB ×1.5 · DEF ×1.3 · RB ×1.2 · HC ×1.15 · TE ×1.1 · WR ×1.0
             </div>
 
-            <div style={{display:"flex",gap:10}}>
-              <button style={{...S.bigBtn,flex:1}} onClick={async ()=>{
-                await resetRoom(roomCode, room.players || {});
-                setLanded(null); setSpinning(false); setModal(null);
-              }}>🔄 PLAY AGAIN</button>
-              <button style={{...S.bigBtn,flex:"0 0 100px",background:"#1a1a1a",border:"1px solid #333",color:"#888"}} onClick={()=>{
-                cleanupRoom(roomCode);
-                setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
-                setLanded(null);setSpinning(false);
-              }}>EXIT</button>
-            </div>
+            {(()=>{
+              const rematchVotes = room.rematch || {};
+              const totalP = allPids.length;
+              const myVoted = rematchVotes[myPid] === true;
+              const voteCount = Object.values(rematchVotes).filter(v=>v===true).length;
+              return (
+                <div style={{display:"flex",gap:10}}>
+                  <button style={{...S.bigBtn,flex:1,opacity:myVoted?0.5:1}} onClick={async ()=>{
+                    if (myVoted) return;
+                    await voteRematch(roomCode, myPid, totalP);
+                    setLanded(null); setSpinning(false); setModal(null);
+                  }}>
+                    {myVoted
+                      ? `✓ Waiting… (${voteCount}/${totalP})`
+                      : "🔄 PLAY AGAIN"}
+                  </button>
+                  <button style={{...S.bigBtn,flex:"0 0 100px",background:"#1a1a1a",border:"1px solid #333",color:"#888"}} onClick={()=>{
+                    cleanupRoom(roomCode);
+                    setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
+                    setLanded(null);setSpinning(false);
+                  }}>EXIT</button>
+                </div>
+              );
+            })()}
           </div>
         </div>
       );

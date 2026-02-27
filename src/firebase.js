@@ -107,12 +107,41 @@ export const writePick = async (code, pid, slot, player, isLegend, players, mode
   }
 };
 
+export const voteRematch = async (code, pid, totalPlayers) => {
+  // Mark this player as wanting a rematch
+  await update(ref(db, `rooms/${code}/rematch`), { [pid]: true });
+  // Check if all players have voted
+  const snap = await get(ref(db, `rooms/${code}/rematch`));
+  const votes = snap.val() || {};
+  const allVoted = Array.from({length: totalPlayers}, (_,i) => `p${i}`).every(p => votes[p] === true);
+  if (allVoted) {
+    // All agreed — do the full reset
+    const playersSnap = await get(ref(db, `rooms/${code}/players`));
+    const players = playersSnap.val() || {};
+    const updates = {};
+    updates[`rooms/${code}/status`] = "active";
+    updates[`rooms/${code}/turn`] = "p0";
+    updates[`rooms/${code}/snakeDir`] = 1;
+    updates[`rooms/${code}/claimed`] = { _init: true };
+    updates[`rooms/${code}/rematch`] = null;
+    Object.keys(players).forEach(p => {
+      updates[`rooms/${code}/players/${p}/roster`] = {...EMPTY_ROSTER};
+      updates[`rooms/${code}/players/${p}/legendTokens`] = 2;
+      updates[`rooms/${code}/players/${p}/reSpinUsed`] = false;
+      updates[`rooms/${code}/players/${p}/done`] = false;
+      updates[`rooms/${code}/players/${p}/spinning`] = null;
+    });
+    await update(ref(db, "/"), updates);
+  }
+};
+
 export const resetRoom = async (code, currentPlayers) => {
   const updates = {};
   updates[`rooms/${code}/status`] = "active";
   updates[`rooms/${code}/turn`] = "p0";
   updates[`rooms/${code}/snakeDir`] = 1;
   updates[`rooms/${code}/claimed`] = { _init: true };
+  updates[`rooms/${code}/rematch`] = null;
   Object.keys(currentPlayers).forEach(pid => {
     updates[`rooms/${code}/players/${pid}/roster`] = {...EMPTY_ROSTER};
     updates[`rooms/${code}/players/${pid}/legendTokens`] = 2;
