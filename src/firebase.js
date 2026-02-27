@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, get, update, onValue, off, push, serverTimestamp } from "firebase/database";
+import { getDatabase, ref, set, get, update, onValue, off, serverTimestamp } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDuEEA49Fm1ti-5jRBuDpDkZBVLjsork_Q",
@@ -9,135 +9,119 @@ const firebaseConfig = {
   storageBucket: "nfl-wheel.firebasestorage.app",
   messagingSenderId: "355105467169",
   appId: "1:355105467169:web:d022be621da2fbbf222c60",
-  measurementId: "G-S0TNVJEZNP"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// ── room code generator ──────────────────────────────────────────────────────
+const EMPTY_ROSTER = {QB:"",RB:"",WR1:"",WR2:"",WR3:"",TE:"",DEF:"",HC:""};
+const SLOT_KEYS = ["QB","RB","WR1","WR2","WR3","TE","DEF","HC"];
+const isFilledSlot = v => v && typeof v === "object";
+const rosterDone = roster => SLOT_KEYS.filter(k => isFilledSlot(roster?.[k])).length === 8;
+
 export const genCode = () => Math.random().toString(36).slice(2,8).toUpperCase();
 
-// ── create a new online room ─────────────────────────────────────────────────
 export const createRoom = async (code, hostName, mode, maxPlayers) => {
-  const roomRef = ref(db, `rooms/${code}`);
-  await set(roomRef, {
-    status: "waiting",
-    mode,           // "draft" | "blitz"
-    maxPlayers,
-    turn: "p0",
-    snakeDir: 1,    // for draft mode snake order
+  await set(ref(db, `rooms/${code}`), {
+    status: "waiting", mode, maxPlayers, turn: "p0", snakeDir: 1,
     createdAt: serverTimestamp(),
-    players: {
-      p0: { name: hostName, roster: {QB:"",RB:"",WR1:"",WR2:"",WR3:"",TE:"",DEF:"",HC:""}, legendTokens:2, reSpinUsed:false, done:false }
-    },
-    claimed: {}
+    players: { p0: { name: hostName, roster: {...EMPTY_ROSTER}, legendTokens:2, reSpinUsed:false, done:false } },
+    claimed: { _init: true }
   });
 };
 
-// ── join an existing room ────────────────────────────────────────────────────
 export const joinRoom = async (code, playerName) => {
-  const roomRef = ref(db, `rooms/${code}`);
-  const snap = await get(roomRef);
+  const snap = await get(ref(db, `rooms/${code}`));
   if (!snap.exists()) throw new Error("Room not found");
   const room = snap.val();
   if (room.status !== "waiting") throw new Error("Game already started");
-  const existingPlayers = Object.keys(room.players || {});
-  if (existingPlayers.length >= room.maxPlayers) throw new Error("Room is full");
-  const pid = `p${existingPlayers.length}`;
+  const existing = Object.keys(room.players || {});
+  if (existing.length >= room.maxPlayers) throw new Error("Room is full");
+  const pid = `p${existing.length}`;
   await update(ref(db, `rooms/${code}/players/${pid}`), {
-    name: playerName, 
-    roster: {QB:"",RB:"",WR1:"",WR2:"",WR3:"",TE:"",DEF:"",HC:""},
-    legendTokens: 2, reSpinUsed: false, done: false
+    name: playerName, roster: {...EMPTY_ROSTER}, legendTokens:2, reSpinUsed:false, done:false
   });
   return pid;
 };
 
-// ── start the game (host only) ───────────────────────────────────────────────
 export const startGame = async (code) => {
   await update(ref(db, `rooms/${code}`), { status: "active" });
 };
 
-// ── listen to a room ─────────────────────────────────────────────────────────
 export const subscribeRoom = (code, cb) => {
-  const roomRef = ref(db, `rooms/${code}`);
-  onValue(roomRef, snap => cb(snap.val()));
-  return () => off(roomRef);
+  const r = ref(db, `rooms/${code}`);
+  onValue(r, snap => cb(snap.val()));
+  return () => off(r);
 };
 
-// ── write a spin result ──────────────────────────────────────────────────────
 export const writeSpin = async (code, pid, teamId) => {
   await update(ref(db, `rooms/${code}/players/${pid}`), { spinning: teamId });
 };
 
-// ── write a pick ─────────────────────────────────────────────────────────────
-export const writePick = async (code, pid, slot, player, isLegend, players, mode, currentTurn, snakeDir, maxPlayers) => {
-  const updates = {};
-  
-  // update player roster
-  updates[`rooms/${code}/players/${pid}/roster/${slot}`] = { ...player, isLegend };
-  if (isLegend) {
-    const cur = players[pid];
-    updates[`rooms/${code}/players/${pid}/legendTokens`] = (cur.legendTokens || 2) - 1;
-  }
-  updates[`rooms/${code}/players/${pid}/spinning`] = null;
-  
-  // claim player
-  if (!isLegend) {
-    const claimKey = `${slot}_${player.n}`.replace(/[^a-zA-Z0-9_]/g, "_");
-    updates[`rooms/${code}/claimed/${claimKey}`] = pid;
-  }
-
-  // check if player is done
-  const updatedRoster = { ...players[pid].roster, [slot]: player };
-  const playerDone = Object.values(updatedRoster).filter(v => v && typeof v === "object").length === 8;
-  if (playerDone) updates[`rooms/${code}/players/${pid}/done`] = true;
-
-  // advance turn for draft mode
-  if (mode === "draft") {
-    const pidNums = Array.from({length: maxPlayers}, (_, i) => i);
-    const currentIdx = parseInt(currentTurn.slice(1));
-    
-    // check if all players done after this pick
-    const allDoneAfter = pidNums.every(i => {
-      if (`p${i}` === pid) return playerDone;
-      return players[`p${i}`]?.done;
-    });
-    
-    if (!allDoneAfter) {
-      // snake draft: find next player who still has slots
-      let nextIdx = currentIdx;
-      let dir = snakeDir;
-      for (let tries = 0; tries < maxPlayers * 2; tries++) {
-        nextIdx += dir;
-        if (nextIdx >= maxPlayers) { nextIdx = maxPlayers - 1; dir = -1; }
-        if (nextIdx < 0) { nextIdx = 0; dir = 1; }
-        const nextPid = `p${nextIdx}`;
-        const nextRoster = nextPid === pid ? updatedRoster : players[nextPid]?.roster || {};
-        if (Object.values(nextRoster).some(v => v === null)) {
-          updates[`rooms/${code}/turn`] = `p${nextIdx}`;
-          updates[`rooms/${code}/snakeDir`] = dir;
-          break;
-        }
-      }
-    }
-  }
-
-  await update(ref(db, "/"), updates);
-};
-
-// ── write respin ─────────────────────────────────────────────────────────────
 export const writeReSpin = async (code, pid) => {
   await update(ref(db, `rooms/${code}/players/${pid}`), { reSpinUsed: true, spinning: null });
 };
 
-// ── cleanup old rooms ────────────────────────────────────────────────────────
-export const cleanupRoom = async (code) => {
-  await set(ref(db, `rooms/${code}`), null);
+export const writePick = async (code, pid, slot, player, isLegend, players, mode, currentTurn, snakeDir, maxPlayers) => {
+  const updates = {};
+  updates[`rooms/${code}/players/${pid}/roster/${slot}`] = { ...player, isLegend };
+  updates[`rooms/${code}/players/${pid}/spinning`] = null;
+  if (isLegend) {
+    updates[`rooms/${code}/players/${pid}/legendTokens`] = (players[pid]?.legendTokens ?? 2) - 1;
+  } else {
+    const claimKey = `${slot}_${player.n}`.replace(/[^a-zA-Z0-9_]/g, "_");
+    updates[`rooms/${code}/claimed/${claimKey}`] = pid;
+  }
+  const updatedRoster = { ...(players[pid]?.roster || {}), [slot]: { ...player, isLegend } };
+  const playerDone = rosterDone(updatedRoster);
+  if (playerDone) updates[`rooms/${code}/players/${pid}/done`] = true;
+
+  if (mode === "draft") {
+    const currentIdx = parseInt(currentTurn.replace("p",""));
+    let dir = snakeDir; let nextIdx = currentIdx;
+    for (let tries = 0; tries < maxPlayers * 3; tries++) {
+      nextIdx += dir;
+      if (nextIdx >= maxPlayers) { nextIdx = maxPlayers-1; dir = -1; }
+      if (nextIdx < 0) { nextIdx = 0; dir = 1; }
+      const nPid = `p${nextIdx}`;
+      const nRoster = nPid === pid ? updatedRoster : (players[nPid]?.roster || {});
+      if (!rosterDone(nRoster)) { updates[`rooms/${code}/turn`] = nPid; updates[`rooms/${code}/snakeDir`] = dir; break; }
+    }
+  }
+
+  // Write picks first, then verify all done from fresh DB read
+  await update(ref(db, "/"), updates);
+
+  // Re-read fresh data to check allDone (avoids stale local state)
+  if (playerDone) {
+    const snap = await get(ref(db, `rooms/${code}/players`));
+    const freshPlayers = snap.val() || {};
+    const allDone = Array.from({length: maxPlayers}, (_,i) => `p${i}`).every(p => {
+      if (p === pid) return true; // we just set done=true above
+      return freshPlayers[p]?.done === true;
+    });
+    if (allDone) {
+      await update(ref(db, `rooms/${code}`), { status: "complete" });
+    }
+  }
 };
 
-// ── mark game complete ────────────────────────────────────────────────────────
-export const markComplete = async (code) => {
-  const { update } = await import("firebase/database");
-  await update(ref(db, `rooms/${code}`), { status: "complete" });
+export const resetRoom = async (code, currentPlayers) => {
+  const updates = {};
+  updates[`rooms/${code}/status`] = "active";
+  updates[`rooms/${code}/turn`] = "p0";
+  updates[`rooms/${code}/snakeDir`] = 1;
+  updates[`rooms/${code}/claimed`] = { _init: true };
+  Object.keys(currentPlayers).forEach(pid => {
+    updates[`rooms/${code}/players/${pid}/roster`] = {...EMPTY_ROSTER};
+    updates[`rooms/${code}/players/${pid}/legendTokens`] = 2;
+    updates[`rooms/${code}/players/${pid}/reSpinUsed`] = false;
+    updates[`rooms/${code}/players/${pid}/done`] = false;
+    updates[`rooms/${code}/players/${pid}/spinning`] = null;
+  });
+  await update(ref(db, "/"), updates);
+};
+
+export const cleanupRoom = async (code) => {
+  await set(ref(db, `rooms/${code}`), null);
 };
