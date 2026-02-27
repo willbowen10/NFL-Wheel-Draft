@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { createRoom, joinRoom, startGame, subscribeRoom, writeSpin, writePick, writeReSpin, cleanupRoom, genCode, markComplete } from "./firebase";
+import { createRoom, joinRoom, startGame, subscribeRoom, writeSpin, writePick, writeReSpin, cleanupRoom, resetRoom, genCode } from "./firebase";
 
 // ─── NFL TEAMS ───────────────────────────────────────────────────────────────
 const TEAMS = [
@@ -1011,14 +1011,14 @@ export default function App() {
   const [sessionId, setSessionId] = useState(() => Math.random().toString(36).slice(2,8));
   useEffect(() => { SFX.setMuted(muted); }, [muted]);
   const [headshotMap, setHeadshotMap] = useState({});
-
   // ── online multiplayer state ──
-  const [gameMode, setGameMode] = useState(null); // null | "solo" | "local" | "draft" | "blitz"
+  const [gameMode, setGameMode] = useState(null);
   const [roomCode, setRoomCode] = useState("");
   const [roomCodeInput, setRoomCodeInput] = useState("");
-  const [myPid, setMyPid] = useState(null);     // "p0","p1","p2","p3"
+  const [myPid, setMyPid] = useState(null);
   const [isHost, setIsHost] = useState(false);
-  const [roomData, setRoomData] = useState(null); // live Firebase room
+  const [roomData, setRoomData] = useState(null);
+  const [finalRoomData, setFinalRoomData] = useState(null); // snapshot at game end
   const [onlineError, setOnlineError] = useState("");
   const [lobbyName, setLobbyName] = useState("");
   const [onlineNumPlayers, setOnlineNumPlayers] = useState(2);
@@ -1288,25 +1288,82 @@ export default function App() {
 
 
   // ── firebase room subscription ───────────────────────────────────────────
+  const phaseRef = useRef("menu");
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
   useEffect(() => {
     if (!roomCode) return;
+    const SLOT_KEYS = ["QB","RB","WR1","WR2","WR3","TE","DEF","HC"];
+    const isFilledSlot = v => v && typeof v === "object";
+    const rosterDone = r => SLOT_KEYS.filter(k => isFilledSlot(r?.[k])).length === 8;
+
     const unsub = subscribeRoom(roomCode, data => {
       if (!data) return;
       setRoomData(data);
+      const cur = phaseRef.current;
+
+      // waiting → game
+      if (data.status === "active" && cur === "online-waiting") {
+        setPhase("online-game");
+        return;
+      }
+
+      // detect completion directly from roster data — no status field needed
+      if (cur === "online-game") {
+        const pids = Object.keys(data.players || {});
+        if (pids.length > 0 && pids.every(p => rosterDone(data.players[p]?.roster))) {
+          setFinalRoomData(data); // snapshot NOW while data is fresh
+          SFX.victory();
+          setPhase("online-results");
+          return;
+        }
+      }
+
+      // fallback: status field
+      if (data.status === "complete" && cur !== "online-results" && cur !== "menu") {
+        setFinalRoomData(data);
+        SFX.victory();
+        setPhase("online-results");
+      }
     });
     return unsub;
   }, [roomCode]);
 
+  // ── poll Firebase every 2s during online game as fallback ───────────────
   useEffect(() => {
-    if (!roomData) return;
-    if (roomData.status === "complete" && (phase === "online-game" || phase === "online-waiting")) {
-      SFX.victory();
-      setPhase("online-results");
-    }
-    if (roomData.status === "active" && phase === "online-waiting") {
-      setPhase("online-game");
-    }
-  }, [roomData?.status]);
+    if (phase !== "online-game" && phase !== "online-waiting") return;
+    if (!roomCode) return;
+    const interval = setInterval(async () => {
+      try {
+        const { getDatabase, ref: fbRef, get: fbGet } = await import("firebase/database");
+        const db = getDatabase();
+        const snap = await fbGet(fbRef(db, `rooms/${roomCode}`));
+        const data = snap.val();
+        if (!data) return;
+        setRoomData(data);
+        if (data.status === "active" && phaseRef.current === "online-waiting") {
+          setPhase("online-game");
+        }
+        if (data.status === "complete" && phaseRef.current === "online-game") {
+          setFinalRoomData(data);
+          SFX.victory();
+          setPhase("online-results");
+        }
+        // Also check via rosters directly
+        if (phaseRef.current === "online-game") {
+          const SLOT_KEYS = ["QB","RB","WR1","WR2","WR3","TE","DEF","HC"];
+          const isObj = v => v && typeof v === "object";
+          const pids = Object.keys(data.players || {});
+          if (pids.length > 0 && pids.every(p => SLOT_KEYS.filter(k => isObj(data.players[p]?.roster?.[k])).length === 8)) {
+            setFinalRoomData(data);
+            SFX.victory();
+            setPhase("online-results");
+          }
+        }
+      } catch(e) {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [phase, roomCode]);
 
   // ── online spin ──────────────────────────────────────────────────────────
   const onlineSpin = () => {
@@ -1357,7 +1414,7 @@ export default function App() {
     const claimed = roomData.claimed || {};
     if (!isLegend) {
       const claimKey = `${slot}_${player.n}`.replace(/[^a-zA-Z0-9_]/g, "_");
-      if (claimed[claimKey]) return; // already taken
+      if (claimed[claimKey]) return;
     }
     if (isLegend) SFX.legend(); else SFX.pick();
     setModal(null);
@@ -1365,15 +1422,13 @@ export default function App() {
     const players = roomData.players || {};
     const maxPlayers = roomData.maxPlayers || 2;
     await writePick(roomCode, myPid, slot, player, isLegend, players, roomData.mode, roomData.turn, roomData.snakeDir || 1, maxPlayers);
-    // check if all players are done — mark complete
-    const myUpdatedRoster = { ...(players[myPid]?.roster || {}), [slot]: player };
-    const myDone = Object.values(myUpdatedRoster).filter(v => v && typeof v === "object").length === 8;
-    const allDone = Object.entries(players).length > 0 && Object.entries(players).every(([pid, p]) => {
-      if (pid === myPid) return myDone;
-      return p.done === true;
-    });
-    if (allDone) {
-      await markComplete(roomCode);
+    // Poll for completion directly — don't rely solely on subscription
+    const { getDatabase, ref: fbRef, get: fbGet } = await import("firebase/database");
+    const db = getDatabase();
+    const snap = await fbGet(fbRef(db, `rooms/${roomCode}/status`));
+    if (snap.val() === "complete") {
+      SFX.victory();
+      setPhase("online-results");
     }
   };
 
@@ -1856,6 +1911,15 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
         <MuteBtn muted={muted} setMuted={setMuted}/>
 
+        {/* debug overlay - remove after testing */}
+        <div style={{position:"fixed",bottom:8,left:8,zIndex:9999,background:"rgba(0,0,0,0.92)",border:"1px solid #444",borderRadius:6,padding:"8px 12px",fontSize:10,color:"#aaa",lineHeight:1.8}}>
+          <div>status: <b style={{color:"#FFD700"}}>{roomData?.status||"?"}</b></div>
+          <div>phase: <b style={{color:"#FFD700"}}>{phase}</b></div>
+          <div>myDone: <b style={{color:"#FFD700"}}>{String(myDone)}</b></div>
+          <div>filled: <b style={{color:"#FFD700"}}>{Object.values(myRoster).filter(v=>v&&typeof v==="object").length}/8</b></div>
+          <div>allDone: <b style={{color:"#FFD700"}}>{Object.values(room.players||{}).every(p=>p.done)?"YES":"NO"}</b></div>
+        </div>
+
         {/* header — same as solo */}
         <div style={S.hdr}>
           <div style={{fontFamily:"'Oswald',sans-serif",fontSize:18,color:"#fff",letterSpacing:1}}>🏈 NFL WHEEL DRAFT</div>
@@ -2233,8 +2297,10 @@ export default function App() {
   );
 
   // ── ONLINE RESULTS ──
-  if (phase==="online-results" && roomData) {
-    const rPlayers = roomData.players || {};
+  if (phase==="online-results") {
+    const resultData = finalRoomData || roomData;
+    if (!resultData) return <div style={S.root}><div style={{padding:60,textAlign:'center',color:'#555',fontSize:14}}>Loading results…</div></div>;
+    const rPlayers = resultData.players || {};
     const scored = Object.entries(rPlayers).map(([pid, p]) => ({
       pid, name: p.name, isMe: pid === myPid,
       score: SLOTS.reduce((s, sl) => {
@@ -2313,11 +2379,18 @@ export default function App() {
             QB ×1.5 · DEF ×1.3 · RB ×1.2 · HC ×1.15 · TE ×1.1 · WR ×1.0
           </div>
 
-          <button style={S.bigBtn} onClick={()=>{
-            cleanupRoom(roomCode);
-            setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
-            setLanded(null);setSpinning(false);
-          }}>PLAY AGAIN</button>
+          <div style={{display:"flex",gap:10}}>
+            <button style={{...S.bigBtn,flex:1}} onClick={async ()=>{
+              await resetRoom(roomCode, roomData?.players || {});
+              setLanded(null); setSpinning(false); setModal(null);
+              setPhase("online-game");
+            }}>🔄 PLAY AGAIN</button>
+            <button style={{...S.bigBtn,flex:"0 0 100px",background:"#1a1a1a",border:"1px solid #333",color:"#888"}} onClick={()=>{
+              cleanupRoom(roomCode);
+              setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
+              setLanded(null);setSpinning(false);
+            }}>EXIT</button>
+          </div>
         </div>
       </div>
     );
