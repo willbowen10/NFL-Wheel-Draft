@@ -36,7 +36,8 @@ export const joinRoom = async (code, playerName) => {
   const room = snap.val();
   if (room.status !== "waiting") throw new Error("Game already started");
   const existing = Object.keys(room.players || {});
-  if (existing.length >= room.maxPlayers) throw new Error("Room is full");
+  const maxP = room.maxPlayers || 4;
+  if (existing.length >= maxP) throw new Error("Room is full");
   const pid = `p${existing.length}`;
   await update(ref(db, `rooms/${code}/players/${pid}`), {
     name: playerName, roster: {...EMPTY_ROSTER}, legendTokens:2, reSpinUsed:false, done:false
@@ -108,14 +109,16 @@ export const writePick = async (code, pid, slot, player, isLegend, players, mode
 };
 
 export const voteRematch = async (code, pid, totalPlayers) => {
-  // Mark this player as wanting a rematch
-  await update(ref(db, `rooms/${code}/rematch`), { [pid]: true });
-  // Check if all players have voted
+  // Write vote then immediately re-read to avoid race conditions
+  const voteRef = ref(db, `rooms/${code}/rematch/${pid}`);
+  await set(voteRef, true);
+  // Small delay to let Firebase propagate
+  await new Promise(r => setTimeout(r, 300));
   const snap = await get(ref(db, `rooms/${code}/rematch`));
   const votes = snap.val() || {};
-  const allVoted = Array.from({length: totalPlayers}, (_,i) => `p${i}`).every(p => votes[p] === true);
-  if (allVoted) {
-    // All agreed — do the full reset
+  const votedCount = Object.values(votes).filter(v => v === true).length;
+  if (votedCount >= totalPlayers) {
+    // Everyone voted — fetch players fresh and do full reset
     const playersSnap = await get(ref(db, `rooms/${code}/players`));
     const players = playersSnap.val() || {};
     const updates = {};

@@ -1288,95 +1288,43 @@ export default function App() {
 
 
 
-  // ── firebase room subscription ───────────────────────────────────────────
+  // ── firebase room subscription ─────────────────────────────────────────────
+  // Single source of truth: roomData drives everything, phaseRef used only to 
+  // prevent acting on stale closures inside the callback.
   const phaseRef = useRef("menu");
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   useEffect(() => {
     if (!roomCode) return;
-    const SLOT_KEYS = ["QB","RB","WR1","WR2","WR3","TE","DEF","HC"];
-    const isFilledSlot = v => v && typeof v === "object";
-    const rosterDone = r => SLOT_KEYS.filter(k => isFilledSlot(r?.[k])).length === 8;
-
     const unsub = subscribeRoom(roomCode, data => {
-      if (!data) return;
+      if (!data) {
+        // Room was deleted (cleanup) — go home
+        if (phaseRef.current.startsWith("online")) {
+          setPhase("menu"); setRoomCode(""); setRoomData(null); setMyPid(null);
+        }
+        return;
+      }
       setRoomData(data);
-      const cur = phaseRef.current;
-
-      // waiting → game, OR rematch reset
-      if (data.status === "active") {
-        setRematchPending(false);
-        if (cur === "online-waiting" || cur === "online-game" || cur === "online-results") {
-          setLanded(null); setSpinning(false);
-          setPhase("online-game");
-        }
-        return;
-      }
-      // rematch reset: status went back to active from complete
-      if (data.status === "active" && cur === "online-game") {
-        setLanded(null);
-        setSpinning(false);
-        setModal(null);
-        setSpinTarget(null);
-        return;
-      }
-
-      // detect completion directly from roster data — no status field needed
-      if (cur === "online-game") {
-        const pids = Object.keys(data.players || {});
-        if (pids.length > 0 && pids.every(p => rosterDone(data.players[p]?.roster))) {
-          setFinalRoomData(data); // snapshot NOW while data is fresh
-          SFX.victory();
-          setPhase("online-results");
-          return;
-        }
-      }
-
-      // fallback: status field
-      if (data.status === "complete" && cur !== "online-results" && cur !== "menu") {
-        setFinalRoomData(data);
-        SFX.victory();
-        setPhase("online-results");
-      }
     });
     return unsub;
   }, [roomCode]);
 
-  // ── poll Firebase every 2s during online game as fallback ───────────────
+  // React to roomData changes via useEffect (not inside callback, avoids stale closures)
   useEffect(() => {
-    if (phase !== "online-game" && phase !== "online-waiting") return;
-    if (!roomCode) return;
-    const interval = setInterval(async () => {
-      try {
-        const { getDatabase, ref: fbRef, get: fbGet } = await import("firebase/database");
-        const db = getDatabase();
-        const snap = await fbGet(fbRef(db, `rooms/${roomCode}`));
-        const data = snap.val();
-        if (!data) return;
-        setRoomData(data);
-        if (data.status === "active" && phaseRef.current === "online-waiting") {
-          setPhase("online-game");
-        }
-        if (data.status === "complete" && phaseRef.current === "online-game") {
-          setFinalRoomData(data);
-          SFX.victory();
-          setPhase("online-results");
-        }
-        // Also check via rosters directly
-        if (phaseRef.current === "online-game") {
-          const SLOT_KEYS = ["QB","RB","WR1","WR2","WR3","TE","DEF","HC"];
-          const isObj = v => v && typeof v === "object";
-          const pids = Object.keys(data.players || {});
-          if (pids.length > 0 && pids.every(p => SLOT_KEYS.filter(k => isObj(data.players[p]?.roster?.[k])).length === 8)) {
-            setFinalRoomData(data);
-            SFX.victory();
-            setPhase("online-results");
-          }
-        }
-      } catch(e) {}
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [phase, roomCode]);
+    if (!roomData || !roomCode) return;
+    const cur = phase;
+    // Waiting → game started
+    if (roomData.status === "active" && cur === "online-waiting") {
+      setPhase("online-game");
+    }
+    // Rematch: status flipped back to active from results
+    if (roomData.status === "active" && (cur === "online-results" || rematchPending)) {
+      setRematchPending(false);
+      setLanded(null); setSpinning(false); setModal(null); setSpinTarget(null);
+      setPhase("online-game");
+    }
+  }, [roomData, roomCode]);
+
 
   // ── online spin ──────────────────────────────────────────────────────────
   const onlineSpin = () => {
@@ -1918,8 +1866,9 @@ export default function App() {
     const isRosterDone = r => SLOT_KEYS.filter(k => isObj(r?.[k])).length === 8;
     const allPids = Object.keys(room.players || {});
 
-    // ── RESULTS VIEW — only when Firebase says "complete" ────────────────────
-    if (room.status === "complete" && !rematchPending) {
+    // ── RESULTS VIEW — show when all rosters are filled AND not resetting ────
+    const allDraftComplete = !rematchPending && allPids.length > 0 && allPids.every(p => isRosterDone(room.players[p]?.roster));
+    if (allDraftComplete) {
       const rPlayers = room.players || {};
       const scored = Object.entries(rPlayers).map(([pid, p]) => ({
         pid, name: p.name, isMe: pid === myPid,
