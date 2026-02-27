@@ -1315,7 +1315,7 @@ export default function App() {
     if (room.mode === "draft" && room.turn !== myPid) return;
     // check my slots not all filled
     const myRoster = room.players?.[myPid]?.roster || {};
-    if (Object.keys(myRoster).filter(k => myRoster[k] !== null && myRoster[k] !== undefined).length === SLOTS.length) return;
+    if (Object.values(myRoster).filter(v => v && typeof v === "object").length === SLOTS.length) return;
     SFX.click();
     const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
     setSpinTarget(target);
@@ -1365,7 +1365,7 @@ export default function App() {
     await writePick(roomCode, myPid, slot, player, isLegend, players, roomData.mode, roomData.turn, roomData.snakeDir || 1, maxPlayers);
     // check if all players are done — mark complete
     const myUpdatedRoster = { ...(players[myPid]?.roster || {}), [slot]: player };
-    const myDone = Object.keys(myUpdatedRoster).filter(k => myUpdatedRoster[k] !== null && myUpdatedRoster[k] !== undefined).length === 8;
+    const myDone = Object.values(myUpdatedRoster).filter(v => v && typeof v === "object").length === 8;
     const allDone = Object.entries(players).length > 0 && Object.entries(players).every(([pid, p]) => {
       if (pid === myPid) return myDone;
       return p.done === true;
@@ -1835,7 +1835,7 @@ export default function App() {
     const room = roomData;
     const myPlayer = room.players?.[myPid] || {};
     const myRoster = myPlayer.roster || {};
-    const myDone = Object.keys(myRoster).filter(k => myRoster[k] !== null && myRoster[k] !== undefined).length === SLOTS.length;
+    const myDone = Object.values(myRoster).filter(v => v && typeof v === "object").length === SLOTS.length;
     const isMyTurn = room.mode === "blitz" || room.turn === myPid;
     const canSpin = isMyTurn && !spinning && !landed && !myDone;
     const allPlayers = Object.entries(room.players || {});
@@ -1843,7 +1843,7 @@ export default function App() {
     const myLegendTokens = myPlayer.legendTokens ?? 2;
     const myReSpinUsed = myPlayer.reSpinUsed || false;
     const claimed = room.claimed || {};
-    const myEmptySlots = SLOTS.filter(s => !myRoster[s.key]);
+    const myEmptySlots = SLOTS.filter(s => !myRoster[s.key] || typeof myRoster[s.key] !== "object");
 
     const isOnlineClaimed = (teamId, slot, playerName) => {
       const claimKey = `${slot}_${playerName}`.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -1915,7 +1915,7 @@ export default function App() {
                   borderRadius:8,padding:"8px 10px",display:"flex",alignItems:"center",gap:8,minHeight:48
                 }}>
                   <span style={{fontFamily:"'Oswald',sans-serif",fontSize:10,color:"#333",width:28,textAlign:"right",letterSpacing:1,flexShrink:0}}>{sl.key}</span>
-                  {fill ? (
+                  {fill && typeof fill === "object" ? (
                     <>
                       <PlayerHeadshot name={fill.n} isLegend={fill.isLegend} headshotMap={headshotMap} size={28}/>
                       <span style={{fontSize:12,color:fill.isLegend?"#FFD700":"#ccc",flex:1,lineHeight:1.2}}>{fill.n}</span>

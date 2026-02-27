@@ -29,7 +29,7 @@ export const createRoom = async (code, hostName, mode, maxPlayers) => {
     snakeDir: 1,    // for draft mode snake order
     createdAt: serverTimestamp(),
     players: {
-      p0: { name: hostName, roster: {QB:null,RB:null,WR1:null,WR2:null,WR3:null,TE:null,DEF:null,HC:null}, legendTokens:2, reSpinUsed:false, done:false }
+      p0: { name: hostName, roster: {QB:"",RB:"",WR1:"",WR2:"",WR3:"",TE:"",DEF:"",HC:""}, legendTokens:2, reSpinUsed:false, done:false }
     },
     claimed: {}
   });
@@ -47,7 +47,7 @@ export const joinRoom = async (code, playerName) => {
   const pid = `p${existingPlayers.length}`;
   await update(ref(db, `rooms/${code}/players/${pid}`), {
     name: playerName, 
-    roster: {QB:null,RB:null,WR1:null,WR2:null,WR3:null,TE:null,DEF:null,HC:null},
+    roster: {QB:"",RB:"",WR1:"",WR2:"",WR3:"",TE:"",DEF:"",HC:""},
     legendTokens: 2, reSpinUsed: false, done: false
   });
   return pid;
@@ -90,7 +90,7 @@ export const writePick = async (code, pid, slot, player, isLegend, players, mode
 
   // check if player is done
   const updatedRoster = { ...players[pid].roster, [slot]: player };
-  const playerDone = Object.keys(updatedRoster).filter(k => updatedRoster[k] !== null && updatedRoster[k] !== undefined).length === 8;
+  const playerDone = Object.values(updatedRoster).filter(v => v && typeof v === "object").length === 8;
   if (playerDone) updates[`rooms/${code}/players/${pid}/done`] = true;
 
   // advance turn for draft mode
