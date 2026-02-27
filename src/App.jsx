@@ -1036,7 +1036,7 @@ export default function App() {
       "matt lafleur":4047616, "demeco ryans":9604, "shane steichen":4047628,
       "liam coen":4047640, "jim harbaugh":3050, "sean mcvay":3059893,
       "mike mcdaniel":4047619, "kevin oconnell":4046462, "mike vrabel":2576123,
-      "dennis allen":4602, "john harbaugh":4600, "aaron glenn":3027,
+      "dennis allen":4602, "aaron glenn":3027,
       "nick sirianni":4046536, "mike mccarthy":4400, "kyle shanahan":3046843,
       "mike macdonald":4047969, "todd bowles":4046442, "robert saleh":4047636,
       "dan quinn":3046854, "jonathan gannon":4046537, "kevin stefanski":4046538,
