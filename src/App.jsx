@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { createRoom, joinRoom, startGame, subscribeRoom, writeSpin, writePick, writeReSpin, cleanupRoom, genCode } from "./firebase";
+import { createRoom, joinRoom, startGame, subscribeRoom, writeSpin, writePick, writeReSpin, cleanupRoom, genCode, markComplete } from "./firebase";
 
 // ─── NFL TEAMS ───────────────────────────────────────────────────────────────
 const TEAMS = [
@@ -1153,7 +1153,7 @@ export default function App() {
           "julio jones":"Julio Jones","michael irvin":"Michael Irvin","cris carter":"Cris Carter",
           "don hutson":"Don Hutson","lynn swann":"Lynn Swann","john stallworth":"John Stallworth",
           "hines ward":"Hines Ward","andre reed":"Andre Reed","sterling sharpe":"Sterling Sharpe",
-          "paul hornung":"Paul Hornung","lance alworth":"Lance Alworth","isaac bruce":"Isaac Bruce",
+          "lance alworth":"Lance Alworth","isaac bruce":"Isaac Bruce",
           "torry holt":"Torry Holt","tim brown":"Tim Brown","fred biletnikoff":"Fred Biletnikoff",
           "paul warfield":"Paul Warfield","charley taylor":"Charley Taylor","art monk":"Art Monk",
           "don maynard":"Don Maynard","harold carmichael":"Harold Carmichael",
@@ -1371,10 +1371,7 @@ export default function App() {
       return p.done;
     });
     if (allDone) {
-      const { update: fbUpdate } = await import("firebase/database");
-      const { getDatabase, ref } = await import("firebase/database");
-      const db = getDatabase();
-      await fbUpdate(ref(db, `rooms/${roomCode}`), { status: "complete" });
+      await markComplete(roomCode);
     }
   };
 
@@ -1685,8 +1682,7 @@ export default function App() {
               <div style={S.fLabel}>PLAYER {i+1}</div>
               <input style={S.inp} value={names[i]}
                 placeholder={`Player ${i+1}`}
-                onChange={e=>{const u=[...names];u[i]=e.target.value;setNames(u);}}
-                placeholder={`Player ${i+1} name`}/>
+                onChange={e=>{const u=[...names];u[i]=e.target.value;setNames(u);}}/>
             </div>
           ))}
           <button style={S.bigBtn} onClick={async ()=>{

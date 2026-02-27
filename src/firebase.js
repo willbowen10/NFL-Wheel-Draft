@@ -135,3 +135,9 @@ export const writeReSpin = async (code, pid) => {
 export const cleanupRoom = async (code) => {
   await set(ref(db, `rooms/${code}`), null);
 };
+
+// ── mark game complete ────────────────────────────────────────────────────────
+export const markComplete = async (code) => {
+  const { update } = await import("firebase/database");
+  await update(ref(db, `rooms/${code}`), { status: "complete" });
+};
