@@ -90,7 +90,7 @@ export const writePick = async (code, pid, slot, player, isLegend, players, mode
 
   // check if player is done
   const updatedRoster = { ...players[pid].roster, [slot]: player };
-  const playerDone = Object.values(updatedRoster).every(v => v !== null);
+  const playerDone = Object.keys(updatedRoster).filter(k => updatedRoster[k] !== null && updatedRoster[k] !== undefined).length === 8;
   if (playerDone) updates[`rooms/${code}/players/${pid}/done`] = true;
 
   // advance turn for draft mode

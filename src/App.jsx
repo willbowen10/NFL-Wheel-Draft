@@ -1315,7 +1315,7 @@ export default function App() {
     if (room.mode === "draft" && room.turn !== myPid) return;
     // check my slots not all filled
     const myRoster = room.players?.[myPid]?.roster || {};
-    if (Object.values(myRoster).every(v => v !== null)) return;
+    if (Object.keys(myRoster).filter(k => myRoster[k] !== null && myRoster[k] !== undefined).length === SLOTS.length) return;
     SFX.click();
     const target = TEAMS[Math.floor(Math.random() * TEAMS.length)];
     setSpinTarget(target);
@@ -1365,10 +1365,10 @@ export default function App() {
     await writePick(roomCode, myPid, slot, player, isLegend, players, roomData.mode, roomData.turn, roomData.snakeDir || 1, maxPlayers);
     // check if all players are done — mark complete
     const myUpdatedRoster = { ...(players[myPid]?.roster || {}), [slot]: player };
-    const myDone = Object.values(myUpdatedRoster).every(v => v !== null);
-    const allDone = Object.entries(players).every(([pid, p]) => {
+    const myDone = Object.keys(myUpdatedRoster).filter(k => myUpdatedRoster[k] !== null && myUpdatedRoster[k] !== undefined).length === 8;
+    const allDone = Object.entries(players).length > 0 && Object.entries(players).every(([pid, p]) => {
       if (pid === myPid) return myDone;
-      return p.done;
+      return p.done === true;
     });
     if (allDone) {
       await markComplete(roomCode);
@@ -1835,7 +1835,7 @@ export default function App() {
     const room = roomData;
     const myPlayer = room.players?.[myPid] || {};
     const myRoster = myPlayer.roster || {};
-    const myDone = Object.values(myRoster).every(v => v !== null);
+    const myDone = Object.keys(myRoster).filter(k => myRoster[k] !== null && myRoster[k] !== undefined).length === SLOTS.length;
     const isMyTurn = room.mode === "blitz" || room.turn === myPid;
     const canSpin = isMyTurn && !spinning && !landed && !myDone;
     const allPlayers = Object.entries(room.players || {});
