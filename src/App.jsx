@@ -1069,8 +1069,9 @@ export default function App() {
         // hardcoded player IDs for names that don't normalize correctly
         const PLAYER_IDS = {
           "dkmetcalf":            4047646,
-          "jamescook":            4430807,
+          "jamescook":            4379399,
           "treveyonhenderson":    4567048,
+          "tyreekhill":           3116406,
         };
         Object.entries(PLAYER_IDS).forEach(([key, id]) => {
           map[key] = `https://a.espncdn.com/i/headshots/nfl/players/full/${id}.png`;
