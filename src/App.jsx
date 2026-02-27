@@ -1019,6 +1019,7 @@ export default function App() {
   const [isHost, setIsHost] = useState(false);
   const [roomData, setRoomData] = useState(null);
   const [finalRoomData, setFinalRoomData] = useState(null); // snapshot at game end
+  const [rematchPending, setRematchPending] = useState(false);
   const [onlineError, setOnlineError] = useState("");
   const [lobbyName, setLobbyName] = useState("");
   const [onlineNumPlayers, setOnlineNumPlayers] = useState(2);
@@ -1302,9 +1303,21 @@ export default function App() {
       setRoomData(data);
       const cur = phaseRef.current;
 
-      // waiting → game
-      if (data.status === "active" && cur === "online-waiting") {
-        setPhase("online-game");
+      // waiting → game, OR rematch reset
+      if (data.status === "active") {
+        setRematchPending(false);
+        if (cur === "online-waiting" || cur === "online-game" || cur === "online-results") {
+          setLanded(null); setSpinning(false);
+          setPhase("online-game");
+        }
+        return;
+      }
+      // rematch reset: status went back to active from complete
+      if (data.status === "active" && cur === "online-game") {
+        setLanded(null);
+        setSpinning(false);
+        setModal(null);
+        setSpinTarget(null);
         return;
       }
 
@@ -1900,15 +1913,13 @@ export default function App() {
       </div>
     );
 
-    // ── detect completion from raw roster data ──────────────────────────────
     const SLOT_KEYS = ["QB","RB","WR1","WR2","WR3","TE","DEF","HC"];
     const isObj = v => v && typeof v === "object";
     const isRosterDone = r => SLOT_KEYS.filter(k => isObj(r?.[k])).length === 8;
     const allPids = Object.keys(room.players || {});
-    const allDraftComplete = allPids.length > 0 && allPids.every(p => isRosterDone(room.players[p]?.roster));
 
-    // ── RESULTS VIEW ────────────────────────────────────────────────────────
-    if (allDraftComplete || phase === "online-results") {
+    // ── RESULTS VIEW — only when Firebase says "complete" ────────────────────
+    if (room.status === "complete" && !rematchPending) {
       const rPlayers = room.players || {};
       const scored = Object.entries(rPlayers).map(([pid, p]) => ({
         pid, name: p.name, isMe: pid === myPid,
@@ -2000,6 +2011,7 @@ export default function App() {
                 <div style={{display:"flex",gap:10}}>
                   <button style={{...S.bigBtn,flex:1,opacity:myVoted?0.5:1}} onClick={async ()=>{
                     if (myVoted) return;
+                    setRematchPending(true);
                     await voteRematch(roomCode, myPid, totalP);
                     setLanded(null); setSpinning(false); setModal(null);
                   }}>
