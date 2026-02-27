@@ -1412,10 +1412,13 @@ export default function App() {
   const onlinePick = async (slot, player, isLegend) => {
     if (!roomCode || !myPid || !roomData) return;
     const claimed = roomData.claimed || {};
-    if (!isLegend) {
-      const claimKey = `${slot}_${player.n}`.replace(/[^a-zA-Z0-9_]/g, "_");
-      if (claimed[claimKey]) return;
+    if (!isLegend && roomData.mode === "draft") {
+      const claimKey = player.n.replace(/[^a-zA-Z0-9_]/g, "_");
+      if (claimed[claimKey]) return; // already taken by another player
     }
+    // Prevent self-duplicate in any mode
+    const myCurrentRoster = roomData.players?.[myPid]?.roster || {};
+    if (Object.values(myCurrentRoster).some(v => v && typeof v === "object" && v.n === player.n)) return;
     if (isLegend) SFX.legend(); else SFX.pick();
     setModal(null);
     setLanded(null);
@@ -2064,9 +2067,17 @@ export default function App() {
     const claimed = room.claimed || {};
     const myEmptySlots = SLOTS.filter(s => !isObj(myRoster[s.key]));
 
-    const isOnlineClaimed = (slot, playerName) => {
-      const claimKey = `${slot}_${playerName}`.replace(/[^a-zA-Z0-9_]/g, "_");
-      return !!claimed[claimKey];
+    const isOnlineClaimed = (playerName) => {
+      // In draft mode: check if another player claimed this person
+      if (room.mode === "draft") {
+        const claimKey = playerName.replace(/[^a-zA-Z0-9_]/g, "_");
+        return !!claimed[claimKey];
+      }
+      return false; // blitz: no cross-player claiming
+    };
+    // Prevent picking the same player twice in your own roster (any mode)
+    const alreadyInMyRoster = (playerName) => {
+      return Object.values(myRoster).some(v => isObj(v) && v.n === playerName);
     };
 
     return (
@@ -2131,7 +2142,7 @@ export default function App() {
             )}
           </div>
 
-          {/* ROSTER */}
+          {/* ROSTER - identical to solo */}
           <div style={S.rosterCol}>
             <div style={{fontFamily:"'Oswald',sans-serif",fontSize:17,color:"#fff",marginBottom:14,letterSpacing:1}}>
               Your Roster
@@ -2140,33 +2151,30 @@ export default function App() {
               {SLOTS.map(sl=>{
                 const fill = myRoster[sl.key];
                 const isEmpty = !isObj(fill);
-                const canFill = landed && !spinning && isMyTurn && isEmpty;
-                const hasLegend = myLegendTokens > 0 && landed && isMyTurn && isEmpty &&
-                  teamLegends.some(lg => lg.pos.includes(sl.key));
+                const canPick = isEmpty && landed && !spinning && isMyTurn;
+                const canLegend = isEmpty && myLegendTokens > 0 && landed && !spinning && isMyTurn;
+                const teamHasLegendForSlot = teamLegends.some(lg=>lg.pos.includes(sl.key)&&(sl.key!=="DEF"||(lg.n.includes("Defense")||/^\d{4}/.test(lg.n)||lg.n.includes("Legion")||lg.n.includes("Curtain")||lg.n.includes("People")||lg.n.includes("Doomsday")||lg.n.includes("No-Name")||lg.n.includes("Tampa 2")||lg.n.includes("Boom"))));
                 return (
-                  <div key={sl.key} style={{...S.slotRow,...(!isEmpty?S.slotFilled:canFill?S.slotOpen:{})}}>
-                    <div style={S.slotLeft}>
-                      <span style={S.slotKey}>{sl.key}</span>
-                      {!isEmpty ? (
-                        <div style={{display:"flex",alignItems:"center",gap:7,flex:1}}>
-                          <PlayerHeadshot name={fill.n} size={32} isLegend={fill.isLegend} headshotMap={headshotMap}/>
+                  <div key={sl.key} style={{...S.row,...(isObj(fill)?S.rowFill:S.rowEmpty)}}>
+                    {isObj(fill) && <PlayerHeadshot name={fill.n} isLegend={fill.isLegend} headshotMap={headshotMap}/>}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={S.slotLbl}>{sl.label} <span style={{color:"#2a2a2a"}}>×{sl.weight}</span></div>
+                      {isObj(fill) ? (
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
                           {fill.isLegend&&<span style={{fontSize:11}}>⭐</span>}
                           <span style={{fontSize:14,color:fill.isLegend?"#FFD700":"#e8e8e8",fontWeight:500}}>{fill.n}</span>
                           <span style={{fontFamily:"'Oswald',sans-serif",fontSize:12,color:fill.isLegend?"#FFD700":"#3a9a3a"}}>{fill.r}</span>
                         </div>
-                      ) : (
-                        <span style={{fontSize:13,color:"#333"}}>{sl.label}</span>
-                      )}
+                      ) : <span style={{fontSize:12,color:"#333",fontStyle:"italic"}}>Empty</span>}
                     </div>
-                    <div style={{display:"flex",gap:6,flexShrink:0}}>
-                      {canFill && (
-                        <button style={S.pickBtn} onClick={()=>setModal({type:"pick",slot:sl.key})}>PICK</button>
-                      )}
-                      {hasLegend && (
-                        <button style={{...S.pickBtn,background:"#3a2800",borderColor:"#8a6000",color:"#FFD700"}}
-                          onClick={()=>setModal({type:"legend",slot:sl.key})}>⭐</button>
-                      )}
-                    </div>
+                    {isEmpty && (
+                      <div style={{display:"flex",gap:7,flexShrink:0}}>
+                        {canPick && <button style={S.pickBtn} onClick={()=>setModal({type:"pick",slot:sl.key})}>PICK</button>}
+                        {canLegend && teamHasLegendForSlot && (
+                          <button style={S.legBtn} onClick={()=>setModal({type:"legend",slot:sl.key})}>⭐ LEGEND</button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2181,8 +2189,8 @@ export default function App() {
               {modal.type==="pick"&&landed&&(()=>{
                 const rosterKey=SLOTS.find(s=>s.key===modal.slot)?.rosterKey;
                 const allOpts=(ROSTERS[landed.id]?.[rosterKey])||[];
-                const available=allOpts.filter(p=>!isOnlineClaimed(modal.slot,p.n));
-                const taken=allOpts.filter(p=>isOnlineClaimed(modal.slot,p.n));
+                const available=allOpts.filter(p=>!isOnlineClaimed(p.n) && !alreadyInMyRoster(p.n));
+                const taken=allOpts.filter(p=>isOnlineClaimed(p.n) || alreadyInMyRoster(p.n));
                 return (
                   <>
                     <div style={{...S.mHead,background:landed.p,color:landed.s}}>

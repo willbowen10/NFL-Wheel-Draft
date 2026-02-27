@@ -68,8 +68,9 @@ export const writePick = async (code, pid, slot, player, isLegend, players, mode
   updates[`rooms/${code}/players/${pid}/spinning`] = null;
   if (isLegend) {
     updates[`rooms/${code}/players/${pid}/legendTokens`] = (players[pid]?.legendTokens ?? 2) - 1;
-  } else {
-    const claimKey = `${slot}_${player.n}`.replace(/[^a-zA-Z0-9_]/g, "_");
+  } else if (mode === "draft") {
+    // Only claim in draft mode — blitz players can each pick the same player
+    const claimKey = `${player.n}`.replace(/[^a-zA-Z0-9_]/g, "_");
     updates[`rooms/${code}/claimed/${claimKey}`] = pid;
   }
   const updatedRoster = { ...(players[pid]?.roster || {}), [slot]: { ...player, isLegend } };
