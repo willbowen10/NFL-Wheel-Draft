@@ -1289,22 +1289,24 @@ export default function App() {
 
   // ── firebase room subscription ───────────────────────────────────────────
   useEffect(() => {
-    if (!roomCode || (phase !== "online-game" && phase !== "online-waiting")) return;
+    if (!roomCode) return;
     const unsub = subscribeRoom(roomCode, data => {
       if (!data) return;
       setRoomData(data);
-      // auto-advance to results when all done
-      if (data.status === "complete") {
-        SFX.victory();
-        setPhase("online-results");
-      }
-      // move from waiting to game when host starts
-      if (phase === "online-waiting" && data.status === "active") {
-        setPhase("online-game");
-      }
     });
     return unsub;
-  }, [roomCode, phase]);
+  }, [roomCode]);
+
+  useEffect(() => {
+    if (!roomData) return;
+    if (roomData.status === "complete" && (phase === "online-game" || phase === "online-waiting")) {
+      SFX.victory();
+      setPhase("online-results");
+    }
+    if (roomData.status === "active" && phase === "online-waiting") {
+      setPhase("online-game");
+    }
+  }, [roomData?.status]);
 
   // ── online spin ──────────────────────────────────────────────────────────
   const onlineSpin = () => {
@@ -1854,22 +1856,24 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
         <MuteBtn muted={muted} setMuted={setMuted}/>
 
-        {/* thin status bar */}
-        <div style={{background:"#0d0d0d",borderBottom:"1px solid #1a1a1a",padding:"6px 16px",textAlign:"center"}}>
-          {room.mode === "draft" ? (
-            isMyTurn
-              ? <span style={{color:"#4a9a4a",fontSize:11,fontWeight:600,letterSpacing:1}}>✓ YOUR TURN</span>
-              : <span style={{color:"#555",fontSize:11,letterSpacing:1}}>Waiting for <span style={{color:"#e8e8e8"}}>{room.players?.[room.turn]?.name || "..."}</span> to pick…</span>
-          ) : (
-            <span style={{color:"#4a7a9a",fontSize:11,fontWeight:600,letterSpacing:1}}>⚡ BLITZ — Draft your roster</span>
-          )}
+        {/* header — same as solo */}
+        <div style={S.hdr}>
+          <div style={{fontFamily:"'Oswald',sans-serif",fontSize:18,color:"#fff",letterSpacing:1}}>🏈 NFL WHEEL DRAFT</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            {room.mode === "draft"
+              ? isMyTurn
+                ? <div style={{...S.tab,...S.tabOn}}>Your Turn</div>
+                : <div style={S.tab}>Waiting for {room.players?.[room.turn]?.name||"..."}…</div>
+              : <div style={S.tab}>⚡ Blitz</div>
+            }
+          </div>
         </div>
 
         <div style={S.body}>
           {/* WHEEL */}
           <div style={S.wheelCol}>
             <div style={{fontFamily:"'Oswald',sans-serif",fontSize:20,color:"#fff",letterSpacing:1,marginBottom:8}}>
-              {myDone ? "Waiting for others…" : "Your Turn"}
+              {myDone ? "Roster Complete!" : isMyTurn ? "Your Turn" : "Waiting…"}
             </div>
 
             {/* tokens */}
@@ -1908,13 +1912,15 @@ export default function App() {
             )}
 
             {myDone && (
-              <div style={{textAlign:"center",padding:"20px 0",color:"#4a9a4a",fontFamily:"'Oswald',sans-serif",fontSize:14,letterSpacing:1}}>
-                ✅ ROSTER COMPLETE — Waiting for others…
+              <div style={{textAlign:"center",padding:"20px 0"}}>
+                <div style={{fontSize:28,marginBottom:8}}>✅</div>
+                <div style={{color:"#4a9a4a",fontFamily:"'Oswald',sans-serif",fontSize:14,letterSpacing:1}}>ROSTER COMPLETE</div>
+                <div style={{color:"#444",fontSize:12,marginTop:4}}>Waiting for other players…</div>
               </div>
             )}
           </div>
 
-          {/* ROSTER */}
+          {/* ROSTER — identical to solo */}
           <div style={S.rosterCol}>
             <div style={{fontFamily:"'Oswald',sans-serif",fontSize:17,color:"#fff",marginBottom:14,letterSpacing:1}}>
               Your Roster
@@ -2239,92 +2245,79 @@ export default function App() {
     })).sort((a,b) => b.score - a.score);
 
     const winner = scored[0];
-    const iWon = winner?.pid === myPid;
 
     return (
       <div style={S.root}>
         <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
         <MuteBtn muted={muted} setMuted={setMuted}/>
+        <div style={S.setup}>
+          <div style={S.badge}>🏆 FINAL STANDINGS</div>
+          <h1 style={S.title}>
+            <span style={{color:"#FFD700"}}>{winner?.name?.toUpperCase()}</span><br/>
+            WINS THE DRAFT
+          </h1>
 
-        {/* winner banner */}
-        <div style={{
-          background: iWon ? "#0a1a00" : "#0d0d0d",
-          borderBottom: `2px solid ${iWon ? "#3a9a3a" : "#E31837"}`,
-          padding:"20px 24px", textAlign:"center"
-        }}>
-          <div style={{fontSize:36,marginBottom:6}}>{iWon ? "🏆" : "💀"}</div>
-          <div style={{fontFamily:"'Oswald',sans-serif",fontSize:32,color: iWon?"#4a9a4a":"#E31837",letterSpacing:2,fontWeight:700}}>
-            {iWon ? "YOU WIN!" : `${winner?.name} WINS`}
-          </div>
-          <div style={{display:"flex",justifyContent:"center",gap:32,marginTop:12}}>
-            {scored.map((p,i) => (
-              <div key={p.pid} style={{textAlign:"center"}}>
-                <div style={{fontSize:11,color:"#555",letterSpacing:2,marginBottom:2}}>{p.isMe?"YOU":p.name.toUpperCase()}</div>
-                <div style={{fontFamily:"'Oswald',sans-serif",fontSize:28,color:i===0?"#FFD700":"#555",fontWeight:700}}>{p.score.toFixed(1)}</div>
-                <div style={{fontSize:10,color:"#333",marginTop:1}}>{i===0?"🥇 WINNER":"🥈"}</div>
+          {/* score comparison */}
+          <div style={{display:"flex",gap:12,marginBottom:24}}>
+            {scored.map((p, rank) => (
+              <div key={p.pid} style={{
+                flex:1, background:rank===0?"#110d00":"#0d0d0d",
+                border:`1px solid ${rank===0?"#3a2800":"#1a1a1a"}`,
+                borderRadius:12, padding:"14px 16px", textAlign:"center"
+              }}>
+                <div style={{fontSize:11,color:"#555",letterSpacing:2,marginBottom:6}}>
+                  {p.isMe?"YOU":p.name.toUpperCase()}
+                </div>
+                <div style={{fontFamily:"'Oswald',sans-serif",fontSize:40,fontWeight:700,color:"#FFD700",lineHeight:1}}>
+                  {p.score.toFixed(1)}
+                </div>
+                <div style={{fontSize:12,color:rank===0?"#9a7a00":"#333",marginTop:6}}>
+                  {rank===0?"🥇 WINNER":"🥈"}
+                </div>
               </div>
             ))}
           </div>
-        </div>
 
-        {/* side by side rosters */}
-        <div style={{display:"flex",overflowX:"auto",minHeight:"calc(100vh - 200px)"}}>
-          {scored.map((p, rank) => (
-            <div key={p.pid} style={{
-              flex:1, minWidth:280,
-              borderRight: rank < scored.length-1 ? "1px solid #1a1a1a" : "none",
-              padding:"16px"
-            }}>
-              {/* column header */}
-              <div style={{
-                display:"flex",alignItems:"center",justifyContent:"space-between",
-                marginBottom:14,paddingBottom:10,borderBottom:`1px solid ${rank===0?"#3a2800":"#1a1a1a"}`
-              }}>
-                <div>
-                  <div style={{fontFamily:"'Oswald',sans-serif",fontSize:16,color:rank===0?"#FFD700":"#888",letterSpacing:1}}>
-                    {rank===0?"🥇":"🥈"} {p.isMe?"YOU":p.name}
-                  </div>
+          {/* side by side rosters */}
+          <div style={{display:"flex",gap:12,marginBottom:16}}>
+            {scored.map((p, rank) => (
+              <div key={p.pid} style={{...S.resCard,...(rank===0?S.resCardWin:{}),flex:1,marginBottom:0}}>
+                <div style={S.resHead}>
+                  <span style={{fontSize:22}}>{rank===0?"🥇":"🥈"}</span>
+                  <span style={S.resName}>{p.isMe?"YOU":p.name}</span>
                 </div>
-                <div style={{fontFamily:"'Oswald',sans-serif",fontSize:22,color:rank===0?"#FFD700":"#555",fontWeight:700}}>
-                  {p.score.toFixed(1)}
+                <div style={S.resGrid}>
+                  {SLOTS.map(sl => {
+                    const pick = p.roster[sl.key];
+                    const hasPick = pick && typeof pick === "object";
+                    return (
+                      <div key={sl.key} style={S.resSlot}>
+                        <div style={S.resSlotLabel}>{sl.label} <span style={{color:"#333"}}>×{sl.weight}</span></div>
+                        {hasPick ? (
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <PlayerHeadshot name={pick.n} size={28} isLegend={pick.isLegend} headshotMap={headshotMap}/>
+                            {pick.isLegend&&<span style={{fontSize:10}}>⭐</span>}
+                            <span style={{fontSize:12,color:pick.isLegend?"#FFD700":"#ccc",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pick.n}</span>
+                            <span style={{fontFamily:"'Oswald',sans-serif",fontSize:11,color:pick.isLegend?"#FFD700":"#3a9a3a",flexShrink:0,marginLeft:4}}>{pick.r}</span>
+                          </div>
+                        ) : <span style={{color:"#444",fontSize:11}}>Empty</span>}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+            ))}
+          </div>
 
-              {/* slots */}
-              {SLOTS.map(sl => {
-                const fill = p.roster[sl.key];
-                const hasPick = fill && typeof fill === "object";
-                return (
-                  <div key={sl.key} style={{
-                    display:"flex",alignItems:"center",gap:8,
-                    padding:"8px 0",borderBottom:"1px solid #141414"
-                  }}>
-                    <span style={{fontFamily:"'Oswald',sans-serif",fontSize:9,color:"#333",width:28,flexShrink:0,letterSpacing:1}}>{sl.key}</span>
-                    {hasPick ? (
-                      <>
-                        <PlayerHeadshot name={fill.n} isLegend={fill.isLegend} headshotMap={headshotMap} size={28}/>
-                        {fill.isLegend&&<span style={{fontSize:9}}>⭐</span>}
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,color:fill.isLegend?"#FFD700":"#e8e8e8",fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fill.n}</div>
-                        </div>
-                        <span style={{fontFamily:"'Oswald',sans-serif",fontSize:11,color:fill.isLegend?"#FFD700":"#3a9a3a",flexShrink:0}}>{fill.r}</span>
-                      </>
-                    ) : <span style={{color:"#2a2a2a",fontSize:11}}>—</span>}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
+          <div style={{fontSize:12,color:"#333",textAlign:"center",margin:"4px 0 24px"}}>
+            QB ×1.5 · DEF ×1.3 · RB ×1.2 · HC ×1.15 · TE ×1.1 · WR ×1.0
+          </div>
 
-        <div style={{padding:"16px 24px"}}>
           <button style={S.bigBtn} onClick={()=>{
             cleanupRoom(roomCode);
             setPhase("menu");setGameMode(null);setRoomCode("");setRoomData(null);setMyPid(null);
             setLanded(null);setSpinning(false);
-          }}>
-            PLAY AGAIN
-          </button>
+          }}>PLAY AGAIN</button>
         </div>
       </div>
     );
