@@ -1486,8 +1486,9 @@ export default function App() {
         <p style={S.sub}>Spin for teams. Draft legends. Build the ultimate franchise.</p>
         <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:8}}>
 
-          <div style={{...S.card,padding:"16px 20px"}}>
-            <div style={{...S.fLabel,marginBottom:12}}>OFFLINE</div>
+          {/* OFFLINE */}
+          <div style={{background:"#fff",borderRadius:12,padding:"18px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.3)"}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#000",letterSpacing:2,marginBottom:12}}>OFFLINE</div>
             <div style={{display:"flex",gap:10}}>
               <button style={{...S.bigBtn,flex:1,fontSize:13,padding:"12px 8px"}} onClick={()=>{setGameMode("solo");setNumP(1);setPhase("setup");}}>
                 👤 SOLO
@@ -1498,15 +1499,28 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{...S.card,padding:"16px 20px"}}>
-            <div style={{...S.fLabel,marginBottom:4}}>ONLINE MULTIPLAYER</div>
-            <div style={{fontSize:12,color:"#444",marginBottom:12}}>Play with friends from anywhere</div>
+          {/* ONLINE MULTIPLAYER */}
+          <div style={{background:"#fff",borderRadius:12,padding:"20px 20px 22px",boxShadow:"0 2px 12px rgba(0,0,0,0.3)"}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#000",letterSpacing:2,marginBottom:2}}>ONLINE MULTIPLAYER</div>
+            <div style={{fontSize:12,color:"#666",marginBottom:16}}>Play with friends from anywhere</div>
             <div style={{display:"flex",gap:10}}>
-              <button style={{...S.bigBtn,flex:1,fontSize:12,padding:"12px 8px",background:"#0a1a2a",borderColor:"#1a3a5a"}} onClick={()=>{setGameMode("draft");setPhase("online-lobby");}}>
-                📋 DRAFT BATTLE<br/><span style={{fontSize:10,opacity:0.6,fontWeight:400}}>Alternating turns</span>
+              <button style={{
+                flex:1,padding:"18px 10px",border:"none",borderRadius:10,
+                background:"#E31837",cursor:"pointer",
+                display:"flex",flexDirection:"column",alignItems:"center",gap:6
+              }} onClick={()=>{setGameMode("draft");setPhase("online-lobby");}}>
+                <span style={{fontSize:22}}>📋</span>
+                <span style={{fontFamily:"'Oswald',sans-serif",fontSize:15,fontWeight:700,color:"#fff",letterSpacing:1}}>DRAFT BATTLE</span>
+                <span style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontWeight:400}}>Alternating turns</span>
               </button>
-              <button style={{...S.bigBtn,flex:1,fontSize:12,padding:"12px 8px",background:"#1a0a0a",borderColor:"#5a1a1a"}} onClick={()=>{setGameMode("blitz");setPhase("online-lobby");}}>
-                ⚡ BLITZ<br/><span style={{fontSize:10,opacity:0.6,fontWeight:400}}>Simultaneous draft</span>
+              <button style={{
+                flex:1,padding:"18px 10px",border:"none",borderRadius:10,
+                background:"#E31837",cursor:"pointer",
+                display:"flex",flexDirection:"column",alignItems:"center",gap:6
+              }} onClick={()=>{setGameMode("blitz");setPhase("online-lobby");}}>
+                <span style={{fontSize:22}}>⚡</span>
+                <span style={{fontFamily:"'Oswald',sans-serif",fontSize:15,fontWeight:700,color:"#fff",letterSpacing:1}}>BLITZ</span>
+                <span style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontWeight:400}}>Simultaneous draft</span>
               </button>
             </div>
           </div>
