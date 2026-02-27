@@ -840,7 +840,7 @@ export default function App() {
 
   const loadClaimed = async () => {
     try {
-      const res = await window.storage.list("pool:");
+      const res = await window.storage.list("pool:", true);
       if (res && res.keys) {
         setClaimed(new Set(res.keys));
       }
@@ -859,7 +859,7 @@ export default function App() {
   // auto-reset pool on new game start (called from START DRAFT)
   const resetPool = async () => {
     try {
-      const res = await window.storage.list("pool:");
+      const res = await window.storage.list("pool:", true);
       if (res && res.keys) {
         await Promise.all(res.keys.map(k => window.storage.delete(k, true).catch(()=>{})));
       }
@@ -908,7 +908,10 @@ export default function App() {
   // ── pick ──
   const pick = (slot, player, isLegend) => {
     // claim globally (non-legends are real players; legends skip claiming)
-    if (!isLegend && landed) claimPlayer(landed.id, player.n);
+    if (!isLegend && landed) {
+      if (isClaimed(landed.id, player.n)) return; // hard block double-pick
+      claimPlayer(landed.id, player.n);
+    }
     let updated;
     setPlayers(prev=>{
       updated = prev.map((p,i)=>i!==pidx?p:{
@@ -1206,10 +1209,16 @@ export default function App() {
                         <RatingBar r={p.r}/>
                       </button>
                     ))}
+                    {taken.map((p,i)=>(
+                      <div key={"t"+i} style={{...S.opt,opacity:0.35,cursor:"not-allowed",pointerEvents:"none"}}>
+                        <span style={{fontSize:15,fontWeight:500,flex:1,textAlign:"left",textDecoration:"line-through",color:"#555"}}>{p.n}</span>
+                        <span style={{fontSize:11,color:"#444",marginLeft:8}}>DRAFTED</span>
+                      </div>
+                    ))}
                     {available.length===0&&allOpts.length>0&&(
                       <div style={{color:"#555",padding:16,textAlign:"center"}}>
                         <div style={{fontSize:22,marginBottom:8}}>😬</div>
-                        All {SLOTS.find(s=>s.key===modal.slot)?.label}s from this team have been drafted by other players.
+                        All {SLOTS.find(s=>s.key===modal.slot)?.label}s from this team have been drafted.
                       </div>
                     )}
                     {allOpts.length===0&&<div style={{color:"#555",padding:16}}>No players listed for this position.</div>}
