@@ -563,7 +563,7 @@ const espnLogo = id => {
   return `https://a.espncdn.com/i/teamlogos/nfl/500/${eid}.png`;
 };
 
-function LogoFlasher({ spinning, targetTeam, onSpinEnd }) {
+function LogoFlasher({ spinning, targetTeam, onSpinEnd, onTick }) {
   const [displayIdx, setDisplayIdx] = useState(0);
   const [isLanded, setIsLanded] = useState(false);
   const timerRef = useRef(null);
@@ -598,6 +598,7 @@ function LogoFlasher({ spinning, targetTeam, onSpinEnd }) {
 
       idx = (idx + 1) % TEAMS.length;
       setDisplayIdx(idx);
+      if (onTick) onTick(speed);
       timerRef.current = setTimeout(tick, speed);
     };
 
@@ -719,29 +720,24 @@ const SFX = (() => {
   const setMuted = (v) => { _muted = v; };
   const play = (fn) => { if (_muted) return; try { fn(getCtx()); } catch(e) {} };
 
-  // Rapid ticking while spinning — tempo increases over time
-  let spinInterval = null;
-  const startSpin = () => {
-    SFX.stopSpin();
-    let delay = 120;
-    const tick = () => {
-      play(c => {
-        const o = c.createOscillator();
-        const g = c.createGain();
-        o.connect(g); g.connect(c.destination);
-        o.frequency.value = 380 + Math.random() * 80;
-        o.type = "square";
-        g.gain.setValueAtTime(0.08, c.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.04);
-        o.start(c.currentTime);
-        o.stop(c.currentTime + 0.04);
-      });
-      delay = Math.max(40, delay * 0.96);
-      spinInterval = setTimeout(tick, delay);
-    };
-    tick();
-  };
-  const stopSpin = () => { clearTimeout(spinInterval); spinInterval = null; };
+  // Tick sound synced to each logo flash
+  const spinTick = (speedMs) => play(c => {
+    const now = c.currentTime;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.connect(g); g.connect(c.destination);
+    // Fast = higher pitch, loud. Slow = lower pitch, quieter
+    const t = Math.min(speedMs / 520, 1); // 0=fast, 1=slow
+    o.type = "square";
+    o.frequency.value = 480 - t * 200;  // 480hz fast → 280hz slow
+    const vol = 0.13 - t * 0.06;        // louder when fast
+    const dur = 0.018 + t * 0.04;       // shorter click when fast
+    g.gain.setValueAtTime(vol, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    o.start(now); o.stop(now + dur + 0.005);
+  });
+  const startSpin = () => {};  // no-op, tick is driven by LogoFlasher
+  const stopSpin = () => {};   // no-op
 
   // Landing — triumphant thud + shimmer
   const land = (isGood) => play(c => {
@@ -939,6 +935,7 @@ export default function App() {
   const [showLb, setShowLb] = useState(false);
   const [spinTarget, setSpinTarget] = useState(null);
   const [muted, setMuted] = useState(false);
+  const [sessionId, setSessionId] = useState(() => Math.random().toString(36).slice(2,8));
   useEffect(() => { SFX.setMuted(muted); }, [muted]);
   const [headshotMap, setHeadshotMap] = useState({});
 
@@ -1054,11 +1051,11 @@ export default function App() {
   const [claimed, setClaimed] = useState(new Set());
   const [poolLoading, setPoolLoading] = useState(false);
 
-  const claimKey = (teamId, playerName) => `pool:${teamId}:${playerName.replace(/[\s']/g,"_")}`;
+  const claimKey = (teamId, playerName) => `pool:${sessionId}:${teamId}:${playerName.replace(/[\s']/g,"_")}`;
 
   const loadClaimed = async () => {
     try {
-      const res = await window.storage.list("pool:", true);
+      const res = await window.storage.list(`pool:${sessionId}:`, true);
       if (res && res.keys) {
         setClaimed(new Set(res.keys));
       }
@@ -1077,7 +1074,7 @@ export default function App() {
   // auto-reset pool on new game start (called from START DRAFT)
   const resetPool = async () => {
     try {
-      const res = await window.storage.list("pool:", true);
+      const res = await window.storage.list(`pool:${sessionId}:`, true);
       if (res && res.keys) {
         await Promise.all(res.keys.map(k => window.storage.delete(k, true).catch(()=>{})));
       }
@@ -1115,7 +1112,7 @@ export default function App() {
     SFX.stopSpin();
     setSpinning(false);
     setLanded(spinTarget);
-    if (spinTarget && spinTarget.id === "JAX") {
+    if (spinTarget && (spinTarget.id === "JAX" || spinTarget.id === "TEN")) {
       SFX.fart();
     } else {
       SFX.land(true);
@@ -1205,7 +1202,7 @@ export default function App() {
           <button style={S.bigBtn} onClick={async ()=>{
             await resetPool();
             setPlayers(names.slice(0,numP).map((name,i)=>({id:i,name,roster:mkRoster(),legendTokens:2,reSpinUsed:false})));
-            setPidx(0); setLanded(null); SFX.intro(); setPhase("game");
+            const newSession = Math.random().toString(36).slice(2,8); setSessionId(newSession); setPidx(0); setLanded(null); setPhase("game");
           }}>START DRAFT</button>
         </div>
         <div style={S.rules}>
@@ -1385,7 +1382,7 @@ export default function App() {
           </div>
 
           <div style={{position:"relative",display:"flex",justifyContent:"center"}}>
-            <LogoFlasher spinning={spinning} targetTeam={spinTarget || TEAMS[0]} onSpinEnd={handleSpinEnd}/>
+            <LogoFlasher spinning={spinning} targetTeam={spinTarget || TEAMS[0]} onSpinEnd={handleSpinEnd} onTick={SFX.spinTick}/>
           </div>
 
           {/* spin / respin buttons */}
